@@ -1090,7 +1090,7 @@ def _tool_plugin_row(plugin: rx.Var) -> rx.Component:
 
 
 def plugin_manager_modal() -> rx.Component:
-    """Modal for managing Message Hub channels and tool plugins."""
+    """Modal for managing channel and tool plugins."""
     from ..lib.plugin_registry import all_channels
 
     # Build channel rows at build time (static)
@@ -1174,7 +1174,7 @@ def plugin_manager_modal() -> rx.Component:
             ),
             # Modal content
             rx.vstack(
-                rx.text("🔌 Message Hub", font_weight="bold", font_size="16px", color="white"),
+                rx.text(t("plugin_manager_title"), font_weight="bold", font_size="16px", color="white"),
 
                 # ── Channels ──
                 rx.text(t("plugin_channels"), font_size="12px", font_weight="bold", color="#999"),

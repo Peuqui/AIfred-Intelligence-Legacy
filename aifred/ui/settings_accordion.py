@@ -1329,7 +1329,7 @@ def settings_accordion() -> rx.Component:
                     width="100%",
                 ),
 
-                # ── Message Hub ──────────────────────────────────
+                # ── Plugin Manager ───────────────────────────────
                 rx.divider(),
                 rx.hstack(
                     rx.tooltip(

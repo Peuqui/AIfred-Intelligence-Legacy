@@ -14,11 +14,13 @@ import ssl
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
-from ...lib.plugin_base import BaseChannel, CredentialField
-from ...lib.logging_utils import log_message
+from ....lib.plugin_base import BaseChannel, CredentialField
+from ....lib.logging_utils import log_message
 
 if TYPE_CHECKING:
-    from ...lib.envelope import InboundMessage, OutboundMessage
+    from ....lib.envelope import InboundMessage, OutboundMessage
+    from ....lib.function_calling import Tool
+    from ....lib.plugin_base import PluginContext
 
 # How often to re-issue IDLE (RFC recommends max 29 min, we use 5 min)
 _IDLE_TIMEOUT_SECONDS = 5 * 60
@@ -95,13 +97,13 @@ class EmailChannel(BaseChannel):
         ]
 
     def is_configured(self) -> bool:
-        from ...lib.config import EMAIL_ENABLED, EMAIL_IMAP_HOST, EMAIL_USER, EMAIL_PASSWORD
+        from ....lib.config import EMAIL_ENABLED, EMAIL_IMAP_HOST, EMAIL_USER, EMAIL_PASSWORD
         return EMAIL_ENABLED and bool(EMAIL_IMAP_HOST and EMAIL_USER and EMAIL_PASSWORD)
 
     def apply_credentials(self, values: dict[str, str]) -> None:
         """Update runtime config from saved credentials."""
         import os
-        from ...lib import config
+        from ....lib import config
 
         os.environ["EMAIL_ENABLED"] = "true"
         config.EMAIL_ENABLED = True
@@ -135,7 +137,7 @@ class EmailChannel(BaseChannel):
 
     async def listener_loop(self) -> None:
         """IMAP IDLE loop — runs until cancelled."""
-        from ...lib.config import EMAIL_IMAP_HOST, EMAIL_IMAP_PORT, EMAIL_USER, EMAIL_PASSWORD
+        from ....lib.config import EMAIL_IMAP_HOST, EMAIL_IMAP_PORT, EMAIL_USER, EMAIL_PASSWORD
 
         if not self.is_configured():
             log_message("Email Plugin: not configured, not starting", "warning")
@@ -208,7 +210,7 @@ class EmailChannel(BaseChannel):
 
     async def send_reply(self, outbound: "OutboundMessage", original: "InboundMessage") -> None:
         """Send an email reply via SMTP."""
-        from ..tools.email_tools.client import send_email
+        from .client import send_email
 
         subject = outbound.metadata.get("subject", "Re: AIfred")
         reply_to_id = outbound.metadata.get("in_reply_to")
@@ -219,14 +221,14 @@ class EmailChannel(BaseChannel):
             body=outbound.text,
             reply_to_id=reply_to_id,
         )
-        from ...lib.debug_bus import debug
+        from ....lib.debug_bus import debug
         debug(f"📤 Auto-reply sent to {outbound.recipient}")
 
     # ── Context ───────────────────────────────────────────────
 
     def build_context(self, message: "InboundMessage") -> str:
         """Prepare email for LLM with sender/subject context."""
-        from ...lib.prompt_loader import load_prompt
+        from ....lib.prompt_loader import load_prompt
 
         subject = message.metadata.get("subject", "?")
         return load_prompt(
@@ -235,6 +237,13 @@ class EmailChannel(BaseChannel):
             subject=subject,
             text=message.text,
         )
+
+    # ── Tools (LLM can read/send/search emails) ────────────────
+
+    def get_tools(self, ctx: "PluginContext") -> list["Tool"]:
+        """Email tools for LLM function calling."""
+        from .tools import get_email_tools
+        return get_email_tools(session_id=ctx.session_id)
 
     def build_reply_metadata(self, message: "InboundMessage") -> dict:
         """Build email-specific reply headers (In-Reply-To, References)."""
@@ -270,9 +279,9 @@ def _get_existing_uids(imap: imaplib.IMAP4_SSL) -> set[bytes]:
 
 def _fetch_email_as_inbound(imap: imaplib.IMAP4_SSL, uid: bytes) -> "InboundMessage | None":
     """Fetch a single email by UID and convert to InboundMessage."""
-    from ..tools.email_tools.client import _decode_header, _extract_body
-    from ...lib.config import EMAIL_MAX_BODY_CHARS
-    from ...lib.envelope import InboundMessage
+    from .client import _decode_header, _extract_body
+    from ....lib.config import EMAIL_MAX_BODY_CHARS
+    from ....lib.envelope import InboundMessage
 
     _, msg_data = imap.uid("FETCH", uid, "(RFC822)")  # type: ignore[arg-type]
     if not msg_data or not msg_data[0] or not isinstance(msg_data[0], tuple):
@@ -332,7 +341,7 @@ def _drain_idle_response(imap: imaplib.IMAP4_SSL, tag: bytes) -> None:
 
 async def _dispatch_inbound(message: "InboundMessage") -> None:
     """Hand an inbound message to the message processor."""
-    from ...lib.message_processor import process_inbound
+    from ....lib.message_processor import process_inbound
 
     outbound = await process_inbound(message)
 
