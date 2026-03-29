@@ -80,25 +80,24 @@ class DiscordChannel(BaseChannel):
         ]
 
     def is_configured(self) -> bool:
-        from ...lib.config import DISCORD_ENABLED, DISCORD_BOT_TOKEN
-        return DISCORD_ENABLED and bool(DISCORD_BOT_TOKEN)
+        from ...lib.credential_broker import broker
+        return (
+            broker.get("discord", "enabled").lower() == "true"
+            and broker.is_set("discord", "bot_token")
+        )
 
     def apply_credentials(self, values: dict[str, str]) -> None:
-        """Update runtime config from saved credentials."""
-        import os
-        from ...lib import config
+        """Update runtime credentials via the broker."""
+        from ...lib.credential_broker import broker
 
-        os.environ["DISCORD_ENABLED"] = "true"
-        config.DISCORD_ENABLED = True
+        broker.set_runtime("discord", "enabled", "true")
 
         token = values.get("DISCORD_BOT_TOKEN", "")
         if token:
-            os.environ["DISCORD_BOT_TOKEN"] = token
-            config.DISCORD_BOT_TOKEN = token
+            broker.set_runtime("discord", "bot_token", token)
 
         channel_ids = values.get("DISCORD_CHANNEL_IDS", "")
-        os.environ["DISCORD_CHANNEL_IDS"] = channel_ids
-        config.DISCORD_CHANNEL_IDS = channel_ids
+        broker.set_runtime("discord", "channel_ids", channel_ids)
 
     # ── Listener ──────────────────────────────────────────────
 
@@ -106,13 +105,14 @@ class DiscordChannel(BaseChannel):
         """Discord bot loop — runs until cancelled."""
         global _discord_client
 
-        from ...lib.config import DISCORD_BOT_TOKEN, DISCORD_CHANNEL_IDS
+        from ...lib.credential_broker import broker
 
         if not self.is_configured():
             log_message("Discord Plugin: not configured, not starting", "warning")
             return
 
-        allowed_channels = _parse_channel_ids(DISCORD_CHANNEL_IDS)
+        bot_token = broker.get("discord", "bot_token")
+        allowed_channels = _parse_channel_ids(broker.get("discord", "channel_ids"))
 
         log_message("Discord Plugin: starting bot...")
         if allowed_channels:
@@ -185,7 +185,7 @@ class DiscordChannel(BaseChannel):
             await _dispatch_inbound(inbound)
 
         try:
-            await client.start(DISCORD_BOT_TOKEN)
+            await client.start(bot_token)
         except asyncio.CancelledError:
             log_message("Discord Plugin: shutting down")
             await client.close()
@@ -250,7 +250,7 @@ class DiscordChannel(BaseChannel):
         """Provide discord_send tool for LLM function calling."""
         from ...lib.function_calling import Tool
         from ...lib.security import TIER_COMMUNICATE
-        from ...lib.config import DISCORD_CHANNEL_IDS
+        from ...lib.credential_broker import broker
         import json
 
         async def _execute_discord_send(message: str, channel_id: str = "") -> str:
@@ -261,7 +261,7 @@ class DiscordChannel(BaseChannel):
             # Default to first configured channel
             target_id = channel_id
             if not target_id:
-                ids = _parse_channel_ids(DISCORD_CHANNEL_IDS)
+                ids = _parse_channel_ids(broker.get("discord", "channel_ids"))
                 if ids:
                     target_id = str(next(iter(ids)))
                 else:

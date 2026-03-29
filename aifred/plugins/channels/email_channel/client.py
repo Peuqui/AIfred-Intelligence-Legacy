@@ -2,6 +2,8 @@
 
 All operations are synchronous (imaplib/smtplib) — wrapped in
 asyncio.to_thread() by the tool executors.
+
+Credentials are accessed exclusively through the CredentialBroker.
 """
 
 import email
@@ -15,17 +17,8 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import Optional
 
-from ....lib.config import (
-    EMAIL_FROM,
-    EMAIL_IMAP_HOST,
-    EMAIL_IMAP_PORT,
-    EMAIL_MAX_BODY_CHARS,
-    EMAIL_MAX_FETCH,
-    EMAIL_PASSWORD,
-    EMAIL_SMTP_HOST,
-    EMAIL_SMTP_PORT,
-    EMAIL_USER,
-)
+from ....lib.config import EMAIL_MAX_BODY_CHARS, EMAIL_MAX_FETCH
+from ....lib.credential_broker import broker
 from ....lib.logging_utils import log_message
 
 
@@ -107,13 +100,21 @@ def _get_attachments(msg: email.message.Message) -> list[str]:
     return attachments
 
 
+def _imap_connect() -> imaplib.IMAP4_SSL:
+    """Create authenticated IMAP connection via broker."""
+    ctx = ssl.create_default_context()
+    host = broker.get("email", "imap_host")
+    port = int(broker.get("email", "imap_port") or "993")
+    imap = imaplib.IMAP4_SSL(host, port, ssl_context=ctx)
+    imap.login(broker.get("email", "user"), broker.get("email", "password"))
+    return imap
+
+
 def check_inbox(n: int = EMAIL_MAX_FETCH, folder: str = "INBOX") -> list[EmailSummary]:
     """Fetch the N most recent emails from IMAP inbox."""
-    ctx = ssl.create_default_context()
     results: list[EmailSummary] = []
 
-    with imaplib.IMAP4_SSL(EMAIL_IMAP_HOST, EMAIL_IMAP_PORT, ssl_context=ctx) as imap:
-        imap.login(EMAIL_USER, EMAIL_PASSWORD)
+    with _imap_connect() as imap:
         imap.select(folder, readonly=True)
 
         _, data = imap.search(None, "ALL")
@@ -169,10 +170,7 @@ def check_inbox(n: int = EMAIL_MAX_FETCH, folder: str = "INBOX") -> list[EmailSu
 
 def read_email(msg_id: str, folder: str = "INBOX") -> EmailMessage:
     """Read full email by message ID."""
-    ctx = ssl.create_default_context()
-
-    with imaplib.IMAP4_SSL(EMAIL_IMAP_HOST, EMAIL_IMAP_PORT, ssl_context=ctx) as imap:
-        imap.login(EMAIL_USER, EMAIL_PASSWORD)
+    with _imap_connect() as imap:
         imap.select(folder, readonly=True)
 
         _, msg_data = imap.fetch(msg_id.encode(), "(RFC822)")
@@ -201,11 +199,9 @@ def read_email(msg_id: str, folder: str = "INBOX") -> EmailMessage:
 
 def search_emails(query: str, folder: str = "INBOX", n: int = EMAIL_MAX_FETCH) -> list[EmailSummary]:
     """Search emails via IMAP SEARCH."""
-    ctx = ssl.create_default_context()
     results: list[EmailSummary] = []
 
-    with imaplib.IMAP4_SSL(EMAIL_IMAP_HOST, EMAIL_IMAP_PORT, ssl_context=ctx) as imap:
-        imap.login(EMAIL_USER, EMAIL_PASSWORD)
+    with _imap_connect() as imap:
         imap.select(folder, readonly=True)
 
         # IMAP SEARCH: search in subject and from
@@ -239,13 +235,14 @@ def search_emails(query: str, folder: str = "INBOX", n: int = EMAIL_MAX_FETCH) -
 
 def send_email(to: str, subject: str, body: str, reply_to_id: Optional[str] = None) -> str:
     """Send an email via SMTP. Returns confirmation string."""
-    from_addr = EMAIL_FROM or EMAIL_USER
+    email_user = broker.get("email", "user")
+    email_from = broker.get("email", "from") or email_user
 
     # If EMAIL_FROM is a display name without address, combine with EMAIL_USER
-    if from_addr and "@" not in from_addr:
-        sender = f'"{from_addr}" <{EMAIL_USER}>'
+    if email_from and "@" not in email_from:
+        sender = f'"{email_from}" <{email_user}>'
     else:
-        sender = from_addr
+        sender = email_from
 
     msg = MIMEMultipart()
     msg["From"] = sender
@@ -253,17 +250,19 @@ def send_email(to: str, subject: str, body: str, reply_to_id: Optional[str] = No
     msg["Subject"] = subject
     # Generate Message-ID so replies can be routed back
     import email.utils as _eu
-    message_id = _eu.make_msgid(domain=EMAIL_USER.split("@")[-1] if "@" in EMAIL_USER else "local")
+    message_id = _eu.make_msgid(domain=email_user.split("@")[-1] if "@" in email_user else "local")
     msg["Message-ID"] = message_id
     if reply_to_id:
         msg["In-Reply-To"] = reply_to_id
         msg["References"] = reply_to_id
     msg.attach(MIMEText(body, "plain", "utf-8"))
 
+    smtp_host = broker.get("email", "smtp_host")
+    smtp_port = int(broker.get("email", "smtp_port") or "587")
     ctx = ssl.create_default_context()
-    with smtplib.SMTP(EMAIL_SMTP_HOST, EMAIL_SMTP_PORT) as smtp:
+    with smtplib.SMTP(smtp_host, smtp_port) as smtp:
         smtp.starttls(context=ctx)
-        smtp.login(EMAIL_USER, EMAIL_PASSWORD)
+        smtp.login(email_user, broker.get("email", "password"))
         smtp.send_message(msg)
 
     log_message(f"📧 Email: sent to {to} — {subject} (Message-ID: {message_id})")
@@ -272,10 +271,7 @@ def send_email(to: str, subject: str, body: str, reply_to_id: Optional[str] = No
 
 def delete_email(msg_id: str, folder: str = "INBOX") -> str:
     """Delete an email by message ID (moves to Trash)."""
-    ctx = ssl.create_default_context()
-
-    with imaplib.IMAP4_SSL(EMAIL_IMAP_HOST, EMAIL_IMAP_PORT, ssl_context=ctx) as imap:
-        imap.login(EMAIL_USER, EMAIL_PASSWORD)
+    with _imap_connect() as imap:
         imap.select(folder)
         imap.store(msg_id.encode(), '+FLAGS', '\\Deleted')
         imap.expunge()

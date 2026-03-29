@@ -102,47 +102,45 @@ class EmailChannel(BaseChannel):
         ]
 
     def is_configured(self) -> bool:
-        from ....lib.config import EMAIL_ENABLED, EMAIL_IMAP_HOST, EMAIL_USER, EMAIL_PASSWORD
-        return EMAIL_ENABLED and bool(EMAIL_IMAP_HOST and EMAIL_USER and EMAIL_PASSWORD)
+        from ....lib.credential_broker import broker
+        return (
+            broker.get("email", "enabled").lower() == "true"
+            and broker.is_set("email", "imap_host")
+            and broker.is_set("email", "user")
+            and broker.is_set("email", "password")
+        )
 
     def apply_credentials(self, values: dict[str, str]) -> None:
-        """Update runtime config from saved credentials."""
-        import os
-        from ....lib import config
+        """Update runtime credentials via the broker."""
+        from ....lib.credential_broker import broker
 
-        os.environ["EMAIL_ENABLED"] = "true"
-        config.EMAIL_ENABLED = True
+        broker.set_runtime("email", "enabled", "true")
 
-        field_map = {
-            "EMAIL_IMAP_HOST": "EMAIL_IMAP_HOST",
-            "EMAIL_IMAP_PORT": "EMAIL_IMAP_PORT",
-            "EMAIL_SMTP_HOST": "EMAIL_SMTP_HOST",
-            "EMAIL_SMTP_PORT": "EMAIL_SMTP_PORT",
-            "EMAIL_USER": "EMAIL_USER",
-            "EMAIL_PASSWORD": "EMAIL_PASSWORD",
-            "EMAIL_FROM": "EMAIL_FROM",
+        # Map UI field env_keys to broker (service, key) pairs
+        _field_to_broker = {
+            "EMAIL_IMAP_HOST": ("email", "imap_host"),
+            "EMAIL_IMAP_PORT": ("email", "imap_port"),
+            "EMAIL_SMTP_HOST": ("email", "smtp_host"),
+            "EMAIL_SMTP_PORT": ("email", "smtp_port"),
+            "EMAIL_USER": ("email", "user"),
+            "EMAIL_PASSWORD": ("email", "password"),
+            "EMAIL_FROM": ("email", "from"),
+            "EMAIL_ALLOWED_SENDERS": ("email", "allowed_senders"),
         }
-        for env_key, config_attr in field_map.items():
+        for env_key, (service, key) in _field_to_broker.items():
             val = values.get(env_key, "")
-            if not val:
-                continue
-            os.environ[env_key] = val
-            if config_attr in ("EMAIL_IMAP_PORT", "EMAIL_SMTP_PORT"):
-                setattr(config, config_attr, int(val))
-            else:
-                setattr(config, config_attr, val)
+            if val:
+                broker.set_runtime(service, key, val)
 
         # Default EMAIL_FROM to EMAIL_USER
         if not values.get("EMAIL_FROM"):
-            from_val = values.get("EMAIL_USER", "")
-            os.environ["EMAIL_FROM"] = from_val
-            config.EMAIL_FROM = from_val
+            broker.set_runtime("email", "from", values.get("EMAIL_USER", ""))
 
     # ── Listener ──────────────────────────────────────────────
 
     async def listener_loop(self) -> None:
         """IMAP IDLE loop — runs until cancelled."""
-        from ....lib.config import EMAIL_IMAP_HOST, EMAIL_IMAP_PORT, EMAIL_USER, EMAIL_PASSWORD
+        from ....lib.credential_broker import broker
 
         if not self.is_configured():
             log_message("Email Plugin: not configured, not starting", "warning")
@@ -154,7 +152,11 @@ class EmailChannel(BaseChannel):
             imap: imaplib.IMAP4_SSL | None = None
             try:
                 imap = await asyncio.to_thread(
-                    _connect_imap, EMAIL_IMAP_HOST, EMAIL_IMAP_PORT, EMAIL_USER, EMAIL_PASSWORD
+                    _connect_imap,
+                    broker.get("email", "imap_host"),
+                    int(broker.get("email", "imap_port") or "993"),
+                    broker.get("email", "user"),
+                    broker.get("email", "password"),
                 )
                 known_uids = await asyncio.to_thread(_get_existing_uids, imap)
                 log_message(f"Email Plugin: connected, {len(known_uids)} existing messages")
@@ -273,14 +275,14 @@ class EmailChannel(BaseChannel):
 def _is_sender_allowed(sender: str) -> bool:
     """Check if an email sender is in the whitelist.
 
-    Whitelist from EMAIL_ALLOWED_SENDERS env var:
+    Whitelist from EMAIL_ALLOWED_SENDERS (via broker):
     - Empty = nobody allowed (safe default)
     - "*" = everyone allowed
     - Comma-separated addresses/domains: "user@mail.de, @family.de"
       - "@domain.de" matches any address at that domain
     """
-    import os
-    whitelist_raw = os.environ.get("EMAIL_ALLOWED_SENDERS", "").strip()
+    from ....lib.credential_broker import broker
+    whitelist_raw = broker.get("email", "allowed_senders").strip()
 
     if not whitelist_raw:
         return False
