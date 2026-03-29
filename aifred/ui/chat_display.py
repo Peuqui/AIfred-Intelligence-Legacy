@@ -498,7 +498,7 @@ def chat_history_display() -> rx.Component:
     # rx.auto_scroll ignoriert den Toggle während der Inferenz, daher JavaScript-Lösung
     # StreamingText uses useEffect + DOM append for O(1) updates per state delta.
 
-    _stream_text_style: dict = {"white_space": "pre-wrap", "word_break": "break-word", "color": COLORS["ai_text"], "font_size": "13px", "line_height": "1.5"}
+    _stream_text_style: dict = {"white_space": "pre-wrap", "word_break": "break-word", "color": COLORS["ai_text"], "font_size": "13px", "line_height": "1.35"}
 
     # Single streaming box — NO rx.cond switching between different streaming_text instances.
     # This prevents React "removeChild" crashes when current_agent changes mid-stream.

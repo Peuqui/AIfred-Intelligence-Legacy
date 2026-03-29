@@ -43,7 +43,8 @@ useEffect(() => {{
     const el = {ref}.current;
     if (!el) return;
     if (text.length !== lastLen_{ref}.current) {{
-        el.textContent = text;
+        // Replace double newlines with single to match rendered Markdown spacing
+        el.textContent = text.replace(/\\n\\n/g, '\\n');
         lastLen_{ref}.current = text.length;
     }}
 }}, [{text_js}]);

@@ -17,6 +17,8 @@ from ..lib.i18n import TranslationManager
 MARKDOWN_COMPONENT_MAP = {
     # Links open in new tab with rel="noopener noreferrer" for security
     "a": lambda text, **props: rx.link(text, **props, is_external=True),
+    # Tighter paragraph spacing (browser default is 1em top+bottom = too much)
+    "p": lambda text, **props: rx.el.p(text, **props, style={"margin_top": "0.5em", "margin_bottom": "0.5em", "line_height": "1.4"}),
 }
 
 # Extended component map with list styling (used in some UI areas)
