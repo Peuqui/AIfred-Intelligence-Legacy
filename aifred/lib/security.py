@@ -157,6 +157,83 @@ def sanitize_outbound(text: str) -> str:
     return text
 
 
+def sanitize_tool_output(text: str) -> str:
+    """Sanitize tool output before it goes back into the LLM context window.
+
+    Strips credentials that might leak through error messages or tool results.
+    Lighter than sanitize_outbound — focuses on credential patterns only.
+    """
+    return _SECRET_PATTERNS.sub("[REDACTED]", text)
+
+
+# ============================================================
+# TOOL-CHAIN & RATE LIMITING
+# ============================================================
+
+class ToolChainLimitReached(Exception):
+    """Raised when tool call chain depth exceeds the configured maximum."""
+
+
+class RateLimitReached(Exception):
+    """Raised when tool call rate exceeds the configured maximum."""
+
+
+# ============================================================
+# ACTION CONFIRMATION (Rule of Two)
+# ============================================================
+# A tool call from an external source that writes data requires confirmation.
+# This is the "Rule of Two": max 2 of 3 (untrusted input, sensitive access,
+# state change). When all 3 apply, the call is blocked.
+
+def needs_confirmation(source: str, tool_tier: int) -> bool:
+    """Check if a tool call needs human confirmation.
+
+    Returns True when an external source tries to use a write-tier tool.
+    Browser context never needs confirmation (user is present).
+    """
+    if source == "browser":
+        return False
+    return tool_tier >= TIER_WRITE_DATA
+
+
+class _RateTracker:
+    """Track tool call counts per source within a sliding time window."""
+
+    def __init__(self) -> None:
+        self._calls: list[tuple[float, str]] = []  # (timestamp, source)
+
+    def record_and_check(self, source: str, now: float) -> bool:
+        """Record a call and return True if within limit, False if exceeded."""
+        from .config import SECURITY_RATE_LIMIT_WINDOW_SEC, SECURITY_RATE_LIMITS
+
+        limit = SECURITY_RATE_LIMITS.get(source, 0)
+        if limit <= 0:
+            return True  # Unlimited
+
+        # Prune old entries
+        cutoff = now - SECURITY_RATE_LIMIT_WINDOW_SEC
+        self._calls = [(t, s) for t, s in self._calls if t > cutoff]
+
+        # Count calls from this source
+        count = sum(1 for _, s in self._calls if s == source)
+        self._calls.append((now, source))
+
+        return count < limit
+
+
+# Singleton rate tracker
+_rate_tracker = _RateTracker()
+
+
+def check_rate_limit(source: str) -> None:
+    """Check if tool call rate is within limits. Raises RateLimitReached if not."""
+    import time
+    if not _rate_tracker.record_and_check(source, time.time()):
+        raise RateLimitReached(
+            f"Rate limit exceeded for source '{source}'"
+        )
+
+
 # ============================================================
 # AUDIT LOG
 # ============================================================

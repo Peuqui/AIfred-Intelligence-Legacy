@@ -56,6 +56,7 @@ class ToolKit:
     tools: list[Tool] = field(default_factory=list)
     _session_id: str = ""   # Audit context
     _source: str = ""       # Audit context (browser/email/discord/…)
+    _call_count: int = 0    # Chain depth counter (resets per LLM request)
 
     def __post_init__(self) -> None:
         self._by_name: dict[str, Tool] = {t.name: t for t in self.tools}
@@ -80,6 +81,34 @@ class ToolKit:
         else:
             args = arguments
 
+        # Chain depth limit
+        from .security import check_rate_limit, RateLimitReached
+        from .config import SECURITY_MAX_TOOL_CHAIN_DEPTH
+
+        self._call_count += 1
+        if SECURITY_MAX_TOOL_CHAIN_DEPTH > 0 and self._call_count > SECURITY_MAX_TOOL_CHAIN_DEPTH:
+            msg = f"Tool chain depth limit ({SECURITY_MAX_TOOL_CHAIN_DEPTH}) exceeded"
+            logger.warning(msg)
+            return json.dumps({"error": msg})
+
+        # Rate limit check
+        try:
+            check_rate_limit(self._source)
+        except RateLimitReached as exc:
+            logger.warning(str(exc))
+            return json.dumps({"error": str(exc)})
+
+        # Rule of Two: block write-tier tools from external sources
+        from .security import needs_confirmation
+        if needs_confirmation(self._source, tool.tier):
+            msg = (
+                f"Action '{name}' (tier {tool.tier}) blocked — "
+                f"write operations from external channel '{self._source}' "
+                f"require confirmation. Use the web UI for this action."
+            )
+            logger.warning(msg)
+            return json.dumps({"error": msg})
+
         t0 = time.perf_counter()
         result_str = ""
         success = True
@@ -88,11 +117,16 @@ class ToolKit:
             if asyncio.iscoroutine(result):
                 result = await result
             result_str = json.dumps(result) if not isinstance(result, str) else result
+            # Sanitize tool output before it enters the LLM context window
+            from .security import sanitize_tool_output
+            result_str = sanitize_tool_output(result_str)
             return result_str
         except Exception as e:
             success = False
             logger.error(f"Tool '{name}' failed: {e}")
             result_str = json.dumps({"error": str(e)})
+            from .security import sanitize_tool_output
+            result_str = sanitize_tool_output(result_str)
             return result_str
         finally:
             try:

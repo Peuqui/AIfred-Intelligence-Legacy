@@ -1042,6 +1042,16 @@ EPIM_FB_DIR = PROJECT_ROOT / "lib" / "firebird25"
 # SECURITY CONFIGURATION
 # ============================================================
 SECURITY_AUDIT_DB = DATA_DIR / "security" / "audit.db"
+SECURITY_MAX_TOOL_CHAIN_DEPTH = 10      # Max tool calls per single LLM request
+SECURITY_RATE_LIMIT_WINDOW_SEC = 60     # Rate limit window in seconds
+SECURITY_RATE_LIMITS: dict[str, int] = {
+    "browser": 0,       # 0 = unlimited
+    "email": 5,         # Max 5 tool calls per minute
+    "discord": 10,
+    "telegram": 10,
+    "cron": 20,
+    "webhook": 3,
+}
 
 # ============================================================
 # HTML PREVIEW CONFIGURATION
