@@ -1,6 +1,11 @@
 # Plugin Development Guide
 
-AIfred uses a unified plugin system. All plugins live in `aifred/plugins/`. System code (interfaces, registry) lives in `aifred/lib/`.
+AIfred uses a unified plugin system. All plugins live in `aifred/plugins/`. System code (interfaces, registry, security) lives in `aifred/lib/`.
+
+> **Security:** Vollstaendige Security-Architektur siehe [security-architecture.md](security-architecture.md).
+> Kurzfassung: Jedes Tool braucht einen `tier`, Credentials nur ueber `broker.get()`.
+
+---
 
 ## Plugin Types
 
@@ -14,6 +19,7 @@ Provide tools the LLM can call during conversations (web search, EPIM, sandbox, 
 from dataclasses import dataclass
 from aifred.lib.function_calling import Tool
 from aifred.lib.plugin_base import PluginContext
+from aifred.lib.security import TIER_READONLY
 
 @dataclass
 class MyPlugin:
@@ -31,6 +37,7 @@ class MyPlugin:
 
         return [Tool(
             name="my_tool",
+            tier=TIER_READONLY,  # REQUIRED: declare security tier
             description="What this tool does",
             parameters={
                 "type": "object",
@@ -57,9 +64,11 @@ plugin = MyPlugin()
 **Key points:**
 - File goes in `aifred/plugins/tools/`
 - Must expose a module-level `plugin` attribute
-- `PluginContext` provides: `agent_id`, `lang`, `session_id`, `state` (None in Hub), `user_query`
+- **Every Tool MUST declare a `tier`** using named constants from `security.py`
+- `PluginContext` provides: `agent_id`, `lang`, `session_id`, `state`, `user_query`, `max_tier`, `source`
 - Tool executors are async functions returning strings (JSON for errors)
 - Prompt instructions are loaded from `prompts/` files (not hardcoded)
+- **Credentials via broker**, never via `os.environ` or `config.py`
 
 ### Channel Plugins (`plugins/channels/`)
 
@@ -69,6 +78,7 @@ Receive and send messages via external services (email, Discord, Telegram, etc.)
 
 ```python
 from aifred.lib.plugin_base import BaseChannel, CredentialField
+from aifred.lib.credential_broker import broker
 
 class MyChannel(BaseChannel):
     # ── Identity (required) ──────────────────────────
@@ -89,18 +99,16 @@ class MyChannel(BaseChannel):
         ]
 
     def is_configured(self) -> bool:
-        from aifred.lib.config import MY_CHANNEL_TOKEN
-        return bool(MY_CHANNEL_TOKEN)
+        return broker.is_set("my_channel", "token")
 
     def apply_credentials(self, values: dict[str, str]) -> None:
-        import os
-        from aifred.lib import config
-        os.environ["MY_TOKEN"] = values.get("MY_TOKEN", "")
-        config.MY_CHANNEL_TOKEN = values["MY_TOKEN"]
+        broker.set_runtime("my_channel", "enabled", "true")
+        broker.set_runtime("my_channel", "token", values.get("MY_TOKEN", ""))
 
     # ── Listener (required) ──────────────────────────
     async def listener_loop(self) -> None:
         """Long-running loop. Handle CancelledError for clean shutdown."""
+        token = broker.get("my_channel", "token")  # Get credential at use time
         ...
 
     # ── Reply (required) ─────────────────────────────
@@ -116,7 +124,6 @@ class MyChannel(BaseChannel):
 
     # ── Optional ─────────────────────────────────────
     def build_reply_metadata(self, message) -> dict:
-        """Channel-specific reply metadata (e.g. email In-Reply-To headers)."""
         return {}
 
     def get_tools(self, ctx) -> list:
@@ -133,7 +140,9 @@ MyChannel_instance = MyChannel()
 - `listener_loop()` must run indefinitely and handle `asyncio.CancelledError`
 - `build_context()` should load prompts from `prompts/` directory
 - `credential_fields` defines the Settings UI form (rendered dynamically)
-- `get_tools()` is optional — for active sending (e.g. `discord_send`)
+- **Credentials via `broker.get()`**, never via `os.environ` or `config.py` globals
+- Add credential mapping to `credential_broker.py: _CREDENTIAL_MAP`
+- Channel tools MUST use named tier constants (typically `TIER_COMMUNICATE`)
 
 ## Debug Messages
 
@@ -142,8 +151,8 @@ Use the centralized Debug Bus. Works in all contexts (browser, hub, standalone):
 ```python
 from aifred.lib.debug_bus import debug
 
-debug("🔍 Searching...")
-debug("✅ Found 5 results")
+debug("Searching...")
+debug("Found 5 results")
 ```
 
 Messages automatically go to:
@@ -165,7 +174,7 @@ Prompt templates go in `prompts/de/` and `prompts/en/`.
 
 ## Enabling / Disabling
 
-Plugins are managed via the **Plugin Manager** (Settings → Plugin Manager → gear icon).
+Plugins are managed via the **Plugin Manager** (Settings > Plugin Manager > gear icon).
 
 ### Channel Plugins vs Tool Plugins — Different Toggle Behavior
 
@@ -178,10 +187,7 @@ Plugins are managed via the **Plugin Manager** (Settings → Plugin Manager → 
 **Tool plugins** (Calculator, Documents, EPIM, etc.) have toggles that apply **on OK**:
 - Toggling a tool plugin in the UI only changes the visual state
 - Clicking OK applies all changes at once by moving files to/from `plugins/disabled/`
-- This avoids slow file I/O on every toggle click (especially when toggling multiple plugins)
 - The plugin file is physically moved — what's in the folder is active, what's in `disabled/` is not
-
-This difference exists because channel plugins manage **live connections** (IMAP sessions, Discord WebSockets) that need immediate start/stop, while tool plugins are **stateless** and only loaded when the LLM makes a tool call.
 
 ### Channel Sub-Toggles
 
@@ -189,26 +195,28 @@ Channels with `always_reply = False` (e.g. Email) show additional sub-toggles:
 - **Monitor**: Start/stop the background listener (IMAP IDLE, etc.)
 - **Auto-Reply**: Automatically send LLM responses back via the channel
 
-Channels with `always_reply = True` (e.g. Discord) only show the main toggle — replies are always sent.
+Channels with `always_reply = True` (e.g. Discord) only show the main toggle.
 
 ## File Structure
 
 ```
 aifred/
 ├── lib/
-│   ├── plugin_base.py      # Interfaces (BaseChannel, ToolPlugin, PluginContext)
-│   ├── plugin_registry.py  # Discovery, enable/disable, list
-│   ├── debug_bus.py         # debug(), session_scope, flush
-│   └── function_calling.py  # Tool, ToolKit classes
+│   ├── plugin_base.py         # Interfaces (BaseChannel, ToolPlugin, PluginContext)
+│   ├── plugin_registry.py     # Discovery, enable/disable, list
+│   ├── security.py            # Tier constants, filter, sanitize, audit
+│   ├── credential_broker.py   # Centralized credential management
+│   ├── debug_bus.py           # debug(), session_scope, flush
+│   └── function_calling.py    # Tool, ToolKit classes
 └── plugins/
     ├── channels/
-    │   ├── email_channel/   # E-Mail (IMAP/SMTP + email tools)
-    │   └── discord.py       # Discord (bot + discord_send tool)
+    │   ├── email_channel/     # E-Mail (IMAP/SMTP + email tools)
+    │   └── discord.py         # Discord (bot + discord_send tool)
     ├── tools/
-    │   ├── calculator.py    # calculate
-    │   ├── documents.py     # search/list/delete/read documents
-    │   ├── epim/            # EPIM database CRUD
-    │   ├── research.py      # web_search, web_fetch
-    │   └── sandbox.py       # execute_code
-    └── disabled/            # Disabled tool plugins (moved here by UI)
+    │   ├── calculator.py      # calculate (tier 0)
+    │   ├── documents.py       # read_document (tier 0)
+    │   ├── epim/              # EPIM database CRUD (tier 0/2/3)
+    │   ├── research.py        # web_search, web_fetch (tier 0)
+    │   └── sandbox.py         # execute_code (tier 2)
+    └── disabled/              # Disabled tool plugins (moved here by UI)
 ```
