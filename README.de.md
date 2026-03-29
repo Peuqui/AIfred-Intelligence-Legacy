@@ -1958,6 +1958,7 @@ systemctl status ollama
 
 Weitere Dokumentation im `docs/` Verzeichnis:
 - [Security-Architektur](docs/de/architecture/security.md)
+- [Scheduler & Proaktive Features](docs/de/architecture/scheduler.md)
 - [Plugin-Entwicklung](docs/en/guides/plugin-development.md) (mit Templates)
 - [Message Hub Architektur](docs/de/architecture/message-hub.md)
 - [LLM-Aufruf-Architektur](docs/en/architecture/llm-call.md)
