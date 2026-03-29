@@ -11,7 +11,7 @@ When the user plans something ("remind me", "every morning", "in 2 hours"):
 2. Choose the right delivery mode:
    - User wants result via Telegram/Discord/Email → delivery="announce", channel="telegram"
    - User just wants a reminder → delivery="review" (shows in UI)
-   - User says nothing specific → delivery="log" (log only)
+   - User says nothing specific → delivery="review" (toast in UI, default)
 3. Formulate the message so AIfred knows what to do at execution time.
 
 TYPICAL USE CASES (suggest these proactively when appropriate):

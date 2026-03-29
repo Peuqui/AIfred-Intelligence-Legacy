@@ -362,16 +362,17 @@ async def _deliver_result(job: Job, response_text: str, session_id: str) -> None
     - "review":   Write to session + notification (user reviews in UI)
     - "webhook":  HTTP POST to an external URL
     """
-    delivery = job.payload.get("delivery", "log")
+    delivery = job.payload.get("delivery", "review")
     log_message(f"Scheduler: delivering job '{job.name}' result via '{delivery}'")
 
+    # Always show toast notification (user should know a job ran)
+    _deliver_review(job, response_text, session_id)
+
+    # Additional delivery based on mode
     if delivery == "announce":
         await _deliver_announce(job, response_text)
-    elif delivery == "review":
-        _deliver_review(job, response_text, session_id)
     elif delivery == "webhook":
         await _deliver_webhook(job, response_text)
-    # "log" is implicit — always logged above
 
 
 async def _deliver_announce(job: Job, response_text: str) -> None:
