@@ -172,8 +172,18 @@ const callback = function(mutationsList, observer) {
     const streamingBox = document.getElementById('streaming-box');
     if (streamingBox) {
         startStreamingScroll();
-    } else {
+    } else if (streamingScrollInterval) {
+        // Streaming just ended → Markdown rendering will change scrollHeight.
+        // Force a final scroll-to-bottom after a short delay to account for
+        // content shrinking when streaming text gets replaced by rendered Markdown.
         stopStreamingScroll();
+        setTimeout(() => {
+            const box = document.getElementById('chat-history-box');
+            if (box && isAutoScrollEnabled()) {
+                box.scrollTop = box.scrollHeight;
+                trackScrollState(box);
+            }
+        }, 300);
     }
 
     // Only scroll if auto-scroll is enabled
