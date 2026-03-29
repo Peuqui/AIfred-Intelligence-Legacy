@@ -39,18 +39,21 @@ def _resolve_entity(entity_type: str) -> str | None:
     return ENTITY_ALIASES.get(entity_type.lower())
 
 
-def _serialize(obj: Any) -> Any:
-    """JSON-serialize EPIM results (handle datetime etc.)."""
+def _serialize(obj: Any, key: str = "") -> Any:
+    """JSON-serialize EPIM results (handle datetime, large IDs etc.)."""
     if obj is None:
         return None
     if isinstance(obj, dict):
-        return {k: _serialize(v) for k, v in obj.items()}
+        return {k: _serialize(v, key=k) for k, v in obj.items()}
     if isinstance(obj, list):
         return [_serialize(v) for v in obj]
     if hasattr(obj, "isoformat"):
         return obj.isoformat()
     if isinstance(obj, bytes):
         return "<binary>"
+    # Convert large integer IDs to strings so LLMs don't truncate them
+    if isinstance(obj, int) and "ID" in key.upper():
+        return str(obj)
     return obj
 
 
@@ -193,9 +196,10 @@ def get_epim_tools(lang: str = "de") -> list[Tool]:
     # ----------------------------------------------------------
     # epim_update
     # ----------------------------------------------------------
-    async def _epim_update(entity_type: str, entity_id: int, data: dict) -> str:
+    async def _epim_update(entity_type: str, entity_id: int | str, data: dict) -> str:
         """Update an existing EPIM entry."""
         from ....lib.logging_utils import log_message
+        entity_id = int(entity_id)  # Accept string IDs from LLM
         log_message(f"🗓️ epim_update: {entity_type} id={entity_id}")
 
         entity = _resolve_entity(entity_type)
@@ -240,9 +244,10 @@ def get_epim_tools(lang: str = "de") -> list[Tool]:
     # ----------------------------------------------------------
     # epim_delete
     # ----------------------------------------------------------
-    async def _epim_delete(entity_type: str, entity_id: int) -> str:
+    async def _epim_delete(entity_type: str, entity_id: int | str) -> str:
         """Soft-delete an EPIM entry."""
         from ....lib.logging_utils import log_message
+        entity_id = int(entity_id)  # Accept string IDs from LLM
         log_message(f"🗓️ epim_delete: {entity_type} id={entity_id}")
 
         entity = _resolve_entity(entity_type)
