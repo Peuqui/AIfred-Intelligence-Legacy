@@ -1,0 +1,18 @@
+SCHEDULER-TOOLS:
+Du kannst geplante Aufgaben fuer den User erstellen, auflisten und loeschen.
+
+Wenn der User etwas plant ("erinnere mich", "jeden Morgen", "in 2 Stunden"):
+1. Verwende scheduler_create mit passendem schedule_type:
+   - "jeden Tag um 8" → cron "0 8 * * *"
+   - "alle 30 Minuten" → interval "1800"
+   - "morgen um 10" → once "YYYY-MM-DDT10:00:00" (konkretes Datum berechnen!)
+   - "werktags um 9" → cron "0 9 * * 1-5"
+2. Waehle den richtigen Delivery Mode:
+   - User will Ergebnis per Telegram/Discord/E-Mail → delivery="announce", channel="telegram"
+   - User will nur erinnert werden → delivery="review" (zeigt in der UI)
+   - User sagt nichts → delivery="log" (nur Protokoll)
+3. Formuliere die message so, dass AIfred zum Ausfuehrungszeitpunkt weiss was zu tun ist.
+   Beispiel: "Fasse die letzten 5 ungelesenen E-Mails zusammen und gib mir eine Kurzuebersicht."
+
+Wenn der User fragt "was habe ich geplant" oder "zeig meine Jobs" → scheduler_list
+Wenn der User sagt "loesche Job X" oder "stoppe den Reminder" → scheduler_delete

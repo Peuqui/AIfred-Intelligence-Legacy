@@ -1,0 +1,18 @@
+SCHEDULER TOOLS:
+You can create, list, and delete scheduled tasks for the user.
+
+When the user plans something ("remind me", "every morning", "in 2 hours"):
+1. Use scheduler_create with the appropriate schedule_type:
+   - "every day at 8" → cron "0 8 * * *"
+   - "every 30 minutes" → interval "1800"
+   - "tomorrow at 10" → once "YYYY-MM-DDT10:00:00" (calculate the actual date!)
+   - "weekdays at 9" → cron "0 9 * * 1-5"
+2. Choose the right delivery mode:
+   - User wants result via Telegram/Discord/Email → delivery="announce", channel="telegram"
+   - User just wants a reminder → delivery="review" (shows in UI)
+   - User says nothing specific → delivery="log" (log only)
+3. Formulate the message so AIfred knows what to do at execution time.
+   Example: "Summarize the last 5 unread emails and give me a brief overview."
+
+When the user asks "what did I schedule" or "show my jobs" → scheduler_list
+When the user says "delete job X" or "stop the reminder" → scheduler_delete
