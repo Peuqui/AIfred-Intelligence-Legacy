@@ -38,6 +38,7 @@ class SettingsMixin(rx.State, mixin=True):
     # ── Plugin Manager Modal ─────────────────────────────────────
     plugin_manager_open: bool = False
     tool_plugins: list[dict[str, str]] = []  # [{"name": "epim", "file": "...", "enabled": "1"}, ...]
+    channel_allowlists: dict[str, str] = {}  # {"email": "user@mail.de, @family.de", "telegram": "123456"}
 
     # ── Audit Log Modal ──────────────────────────────────────────
     audit_log_open: bool = False
@@ -640,9 +641,16 @@ class SettingsMixin(rx.State, mixin=True):
     # ================================================================
 
     def open_plugin_manager(self) -> None:
-        """Open plugin manager modal and refresh plugin lists."""
+        """Open plugin manager modal and refresh plugin lists + allowlists."""
         from ..lib.plugin_registry import list_all_plugins
+        from ..lib.credential_broker import broker
         self.tool_plugins = [p for p in list_all_plugins() if p["type"] == "tool"]
+        # Load current allowlists for display
+        self.channel_allowlists = {
+            "email": broker.get("email", "allowed_senders") or "-",
+            "telegram": broker.get("telegram", "allowed_users") or "-",
+            "discord": broker.get("discord", "channel_ids") or "-",
+        }
         self.plugin_manager_open = True
 
     def close_plugin_manager(self) -> None:

@@ -1186,6 +1186,31 @@ def plugin_manager_modal() -> rx.Component:
                 )
             )
 
+        # Allowlist display (compact, under the channel row)
+        allowlist_key = name  # "email", "telegram", "discord"
+        children.append(
+            rx.cond(
+                enabled_var,
+                rx.hstack(
+                    rx.box(width="14px"),
+                    rx.icon("shield", size=12, color="#666"),
+                    rx.text("Allowlist: ", font_size="10px", color="#666"),
+                    rx.text(
+                        AIState.channel_allowlists[allowlist_key],
+                        font_size="10px",
+                        color="#888",
+                        overflow="hidden",
+                        text_overflow="ellipsis",
+                        white_space="nowrap",
+                        max_width="200px",
+                    ),
+                    spacing="1",
+                    align="center",
+                    width="100%",
+                ),
+            )
+        )
+
         row = rx.vstack(*children, spacing="1", width="100%")
         channel_rows.append(row)
 
