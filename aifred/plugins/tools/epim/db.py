@@ -474,7 +474,7 @@ class EpimDatabase:
         sql = f"UPDATE TASKS SET {', '.join(updates)} WHERE IDTASK = ?"
         cur.execute(sql, params)
         con.commit()
-        return True
+        return cur.rowcount > 0
 
     def delete_task(self, task_id: int) -> bool:
         """Soft-delete a task (set STATUS=1, DELETED=now)."""
