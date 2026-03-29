@@ -7,6 +7,7 @@ All IMAP/SMTP operations run in asyncio.to_thread() (blocking I/O).
 import asyncio
 
 from ....lib.function_calling import Tool
+from ....lib.security import TIER_COMMUNICATE
 from ....lib.prompt_loader import load_tool_description
 
 
@@ -94,7 +95,7 @@ def get_email_tools(session_id: str = "") -> list[Tool]:
     return [
         Tool(
             name="email",
-            tier=1,
+            tier=TIER_COMMUNICATE,
             description=load_tool_description("email_tool.txt"),
             parameters={
                 "type": "object",

@@ -12,6 +12,7 @@ import logging
 from typing import Any, Optional
 
 from ....lib.function_calling import Tool
+from ....lib.security import TIER_READONLY, TIER_WRITE_DATA, TIER_WRITE_SYSTEM
 
 logger = logging.getLogger(__name__)
 
@@ -267,7 +268,7 @@ def get_epim_tools(lang: str = "de") -> list[Tool]:
     return [
         Tool(
             name="epim_search",
-            tier=0,
+            tier=TIER_READONLY,
             description=search_desc,
             parameters={
                 "type": "object",
@@ -303,7 +304,7 @@ def get_epim_tools(lang: str = "de") -> list[Tool]:
         ),
         Tool(
             name="epim_create",
-            tier=2,
+            tier=TIER_WRITE_DATA,
             description=create_desc,
             parameters={
                 "type": "object",
@@ -329,7 +330,7 @@ def get_epim_tools(lang: str = "de") -> list[Tool]:
         ),
         Tool(
             name="epim_update",
-            tier=2,
+            tier=TIER_WRITE_DATA,
             description=update_desc,
             parameters={
                 "type": "object",
@@ -353,7 +354,7 @@ def get_epim_tools(lang: str = "de") -> list[Tool]:
         ),
         Tool(
             name="epim_delete",
-            tier=3,
+            tier=TIER_WRITE_SYSTEM,
             description=delete_desc,
             parameters={
                 "type": "object",

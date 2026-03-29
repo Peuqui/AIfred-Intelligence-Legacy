@@ -250,6 +250,7 @@ class AgentMemory:
 
     def make_toolkit(self, agent_id: str, session_id: str = "") -> ToolKit:
         """Create a ToolKit with memory tools bound to a specific agent."""
+        from .security import TIER_WRITE_DATA
 
         async def store_memory(content: str, memory_type: str, summary: str) -> str:
             return await self.store(agent_id, content, memory_type, summary, session_id=session_id)
@@ -257,7 +258,7 @@ class AgentMemory:
         return ToolKit(tools=[
             Tool(
                 name="store_memory",
-                tier=2,
+                tier=TIER_WRITE_DATA,
                 description=load_tool_description("store_memory_tool.txt"),
                 parameters={
                     "type": "object",

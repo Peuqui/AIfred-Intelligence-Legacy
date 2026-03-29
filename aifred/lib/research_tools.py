@@ -12,6 +12,7 @@ import logging
 from typing import Any, AsyncGenerator, Optional, TYPE_CHECKING
 
 from .function_calling import Tool
+from .security import TIER_READONLY
 
 if TYPE_CHECKING:
     from ..state import AIState
@@ -465,7 +466,7 @@ def get_research_tools(state: Optional['AIState'] = None, lang: str = "de") -> l
     return [
         Tool(
             name="web_search",
-            tier=0,
+            tier=TIER_READONLY,
             description=(
                 "Search the web for current, verified information. You MUST use this tool when: "
                 "(1) the user asks about specific products, software, models, versions, or releases, "
@@ -493,7 +494,7 @@ def get_research_tools(state: Optional['AIState'] = None, lang: str = "de") -> l
         ),
         Tool(
             name="web_fetch",
-            tier=0,
+            tier=TIER_READONLY,
             description=(
                 "Fetch and read the content of a specific URL. Use this when you know the exact URL "
                 "you need (e.g. a specific page on bibleserver.com, a documentation page, a Wikipedia article). "

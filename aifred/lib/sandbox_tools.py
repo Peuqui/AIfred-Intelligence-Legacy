@@ -7,6 +7,7 @@ import json
 from typing import Optional
 
 from .function_calling import Tool
+from .security import TIER_WRITE_DATA
 from .logging_utils import log_message
 from .prompt_loader import load_tool_description
 
@@ -61,7 +62,7 @@ def get_sandbox_tools(session_id: Optional[str] = None) -> list[Tool]:
     return [
         Tool(
             name="execute_code",
-            tier=2,
+            tier=TIER_WRITE_DATA,
             description=load_tool_description("execute_code_tool.txt"),
             parameters={
                 "type": "object",

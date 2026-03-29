@@ -7,6 +7,7 @@ that operate on the ChromaDB document store.
 import json
 
 from .function_calling import Tool
+from .security import TIER_READONLY, TIER_WRITE_SYSTEM
 from .prompt_loader import load_tool_description
 
 
@@ -64,7 +65,7 @@ def get_document_tools() -> list[Tool]:
     return [
         Tool(
             name="search_documents",
-            tier=0,
+            tier=TIER_READONLY,
             description=f"{description} Search uploaded documents by semantic similarity.",
             parameters={
                 "type": "object",
@@ -85,7 +86,7 @@ def get_document_tools() -> list[Tool]:
         ),
         Tool(
             name="list_documents",
-            tier=0,
+            tier=TIER_READONLY,
             description="List all uploaded documents with their metadata (filename, chunks, upload date).",
             parameters={
                 "type": "object",
@@ -95,7 +96,7 @@ def get_document_tools() -> list[Tool]:
         ),
         Tool(
             name="delete_document",
-            tier=3,
+            tier=TIER_WRITE_SYSTEM,
             description="Delete an uploaded document and all its indexed chunks from the store.",
             parameters={
                 "type": "object",

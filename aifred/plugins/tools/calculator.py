@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from ...lib.function_calling import Tool
+from ...lib.security import TIER_READONLY
 from ...lib.plugin_base import PluginContext
 
 
@@ -73,7 +74,7 @@ class CalculatorPlugin:
         return [
             Tool(
                 name="calculate",
-                tier=0,
+                tier=TIER_READONLY,
                 description=(
                     "Evaluate a mathematical expression and return the exact result. "
                     "Use this for any calculation instead of doing mental math. "

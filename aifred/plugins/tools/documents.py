@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from ...lib.function_calling import Tool
+from ...lib.security import TIER_READONLY
 from ...lib.plugin_base import PluginContext
 from ...lib.i18n import t
 
@@ -58,7 +59,7 @@ class DocumentPlugin:
 
         tools.append(Tool(
             name="read_document",
-            tier=0,
+            tier=TIER_READONLY,
             description=(
                 "Read a document from the local file system (uploaded files, PDFs, text files). "
                 "The path is relative to the data/ directory. "

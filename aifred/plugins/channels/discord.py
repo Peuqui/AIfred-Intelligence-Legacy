@@ -249,6 +249,7 @@ class DiscordChannel(BaseChannel):
     def get_tools(self, ctx: "PluginContext") -> list["Tool"]:
         """Provide discord_send tool for LLM function calling."""
         from ...lib.function_calling import Tool
+        from ...lib.security import TIER_COMMUNICATE
         from ...lib.config import DISCORD_CHANNEL_IDS
         import json
 
@@ -288,7 +289,7 @@ class DiscordChannel(BaseChannel):
         return [
             Tool(
                 name="discord_send",
-                tier=1,
+                tier=TIER_COMMUNICATE,
                 description="Send a message to a Discord channel. Use this when the user asks to send a message via Discord.",
                 parameters={
                     "type": "object",
