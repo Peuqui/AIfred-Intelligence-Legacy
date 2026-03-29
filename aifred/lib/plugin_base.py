@@ -39,6 +39,7 @@ class ToolPlugin(Protocol):
     """Protocol that every tool plugin must satisfy."""
 
     name: str
+    display_name: str
 
     def is_available(self) -> bool:
         """Check if this plugin can run right now (config flags, services, etc.)."""

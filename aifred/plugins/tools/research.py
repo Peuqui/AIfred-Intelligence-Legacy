@@ -11,6 +11,7 @@ from ...lib.i18n import t
 @dataclass
 class ResearchPlugin:
     name: str = "research"
+    display_name: str = "Research"
 
     def is_available(self) -> bool:
         return True

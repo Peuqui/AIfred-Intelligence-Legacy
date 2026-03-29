@@ -164,6 +164,11 @@ def list_all_plugins() -> list[dict[str, str]]:
     result: list[dict[str, str]] = []
 
     def _display(stem: str) -> str:
+        """Get display name from the loaded plugin."""
+        if _tools:
+            for p in _tools:
+                if p.name == stem:
+                    return p.display_name
         return stem.replace("_", " ").title()
 
     # Enabled channels (single files + packages)

@@ -18,6 +18,7 @@ from aifred.lib.plugin_base import PluginContext
 @dataclass
 class MyPlugin:
     name: str = "my_plugin"
+    display_name: str = "My Plugin"
 
     def is_available(self) -> bool:
         """Check if this plugin can run (config, services, etc.)."""

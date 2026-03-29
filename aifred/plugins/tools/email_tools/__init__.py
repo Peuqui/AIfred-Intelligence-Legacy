@@ -11,6 +11,7 @@ from ....lib.i18n import t
 @dataclass
 class EmailPlugin:
     name: str = "email"
+    display_name: str = "Email Tools"
 
     def is_available(self) -> bool:
         from ....lib.config import EMAIL_ENABLED

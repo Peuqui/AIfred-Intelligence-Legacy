@@ -11,6 +11,7 @@ from ....lib.plugin_base import PluginContext
 @dataclass
 class EpimPlugin:
     name: str = "epim"
+    display_name: str = "EPIM"
 
     def is_available(self) -> bool:
         from ....lib.config import EPIM_ENABLED

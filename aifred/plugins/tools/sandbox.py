@@ -11,6 +11,7 @@ from ...lib.i18n import t
 @dataclass
 class SandboxPlugin:
     name: str = "sandbox"
+    display_name: str = "Sandbox"
 
     def is_available(self) -> bool:
         return True

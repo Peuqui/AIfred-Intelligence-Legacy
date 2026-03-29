@@ -11,6 +11,7 @@ from ...lib.i18n import t
 @dataclass
 class DocumentPlugin:
     name: str = "document"
+    display_name: str = "Documents"
 
     def is_available(self) -> bool:
         from ...lib.document_store import get_document_store
