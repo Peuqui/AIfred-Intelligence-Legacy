@@ -3,9 +3,9 @@
 from dataclasses import dataclass
 from typing import Any
 
-from ...lib.function_calling import Tool
-from ...lib.i18n import t
-from ...lib.plugin_base import PluginContext
+from ....lib.function_calling import Tool
+from ....lib.i18n import t
+from ....lib.plugin_base import PluginContext
 
 
 @dataclass
@@ -13,7 +13,7 @@ class EpimPlugin:
     name: str = "epim"
 
     def is_available(self) -> bool:
-        from ...lib.config import EPIM_ENABLED
+        from ....lib.config import EPIM_ENABLED
         if not EPIM_ENABLED:
             return False
         from .db import get_epim_db
@@ -24,7 +24,7 @@ class EpimPlugin:
         return get_epim_tools(lang=ctx.lang)
 
     def get_prompt_instructions(self, lang: str) -> str:
-        from ...lib.prompt_loader import load_prompt
+        from ....lib.prompt_loader import load_prompt
         return load_prompt("shared/epim_instructions", lang=lang) or ""
 
     def get_ui_status(self, tool_name: str, tool_args: dict[str, Any], lang: str) -> str:
