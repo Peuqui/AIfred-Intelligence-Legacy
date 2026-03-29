@@ -83,6 +83,10 @@ _CREDENTIAL_MAP: dict[tuple[str, str], str] = {
     ("cloud_qwen", "api_key"): "DASHSCOPE_API_KEY",
     ("cloud_deepseek", "api_key"): "DEEPSEEK_API_KEY",
     ("cloud_kimi", "api_key"): "MOONSHOT_API_KEY",
+    # Telegram
+    ("telegram", "bot_token"): "TELEGRAM_BOT_TOKEN",
+    ("telegram", "allowed_users"): "TELEGRAM_ALLOWED_USERS",
+    ("telegram", "enabled"): "TELEGRAM_ENABLED",
     # Webhook API
     ("webhook", "api_token"): "WEBHOOK_API_TOKEN",
 }

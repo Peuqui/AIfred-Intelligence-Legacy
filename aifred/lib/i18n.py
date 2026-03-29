@@ -142,6 +142,9 @@ class TranslationManager:
             # Discord credential labels
             "discord_cred_bot_token": "Bot Token",
             "discord_cred_channel_ids": "Channel IDs (kommagetrennt)",
+            # Telegram credential labels
+            "telegram_cred_bot_token": "Bot Token",
+            "telegram_cred_allowed_users": "Erlaubte User-IDs (kommagetrennt, leer = keine)",
             "system_control": "🔄 System-Steuerung",
             "restart_ollama": "🔄 Ollama Neustart",
             "restart_vllm": "🔄 vLLM Neustart",
@@ -489,6 +492,9 @@ class TranslationManager:
             # Discord credential labels
             "discord_cred_bot_token": "Bot Token",
             "discord_cred_channel_ids": "Channel IDs (comma-separated)",
+            # Telegram credential labels
+            "telegram_cred_bot_token": "Bot Token",
+            "telegram_cred_allowed_users": "Allowed User IDs (comma-separated, empty = none)",
             "system_control": "🔄 System Control",
             "restart_ollama": "🔄 Ollama Restart",
             "restart_vllm": "🔄 vLLM Restart",
