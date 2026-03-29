@@ -86,8 +86,9 @@ class SchedulerPlugin:
             store = get_job_store()
             jobs = store.list_all()
             if not jobs:
-                return json.dumps({"jobs": [], "message": "No scheduled jobs"})
+                return json.dumps({"total_count": 0, "jobs": [], "message": "No scheduled jobs"})
             return json.dumps({
+                "total_count": len(jobs),
                 "jobs": [
                     {
                         "job_id": j.job_id,

@@ -24,8 +24,8 @@ def get_email_tools(session_id: str = "") -> list[Tool]:
             folder = kwargs.get("folder", "INBOX")
             emails = await asyncio.to_thread(check_inbox, n=min(n, 20), folder=folder)
             if not emails:
-                return "No emails found."
-            lines = []
+                return "No emails found (0 messages)."
+            lines = [f"Total: {len(emails)} emails"]
             for e in emails:
                 status = "📩" if not e.is_read else "📧"
                 lines.append(f"{status} [{e.msg_id}] {e.date} — {e.sender}\n   {e.subject}\n   {e.preview}")

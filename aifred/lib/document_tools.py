@@ -32,7 +32,7 @@ def get_document_tools() -> list[Tool]:
                 "chunk": f"{hit['chunk_index'] + 1}/{hit['total_chunks']}",
                 "content": hit["content"],
             })
-        return json.dumps({"results": results}, ensure_ascii=False)
+        return json.dumps({"total_results": len(results), "results": results}, ensure_ascii=False)
 
     async def _list_documents() -> str:
         """List all uploaded documents."""
