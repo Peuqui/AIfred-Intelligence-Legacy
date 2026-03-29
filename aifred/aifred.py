@@ -287,7 +287,20 @@ function initialize() {
     setTimeout(() => {
         setupObservers();
         makeLinksOpenInNewTab();
+        // On page load/reload: scroll chat + debug to bottom
+        const chatBox = document.getElementById('chat-history-box');
+        const debugBox = document.getElementById('debug-console-box');
+        if (chatBox) { chatBox.scrollTop = chatBox.scrollHeight; trackScrollState(chatBox); }
+        if (debugBox) { debugBox.scrollTop = debugBox.scrollHeight; trackScrollState(debugBox); }
     }, 1500);
+
+    // Second retry for slow-loading sessions (large chat history)
+    setTimeout(() => {
+        const chatBox = document.getElementById('chat-history-box');
+        const debugBox = document.getElementById('debug-console-box');
+        if (chatBox) { chatBox.scrollTop = chatBox.scrollHeight; trackScrollState(chatBox); }
+        if (debugBox) { debugBox.scrollTop = debugBox.scrollHeight; trackScrollState(debugBox); }
+    }, 3000);
 }
 
 // Note: NO periodic setInterval for auto-scroll. The MutationObserver
