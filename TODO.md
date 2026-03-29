@@ -128,8 +128,8 @@ Hardware: MediaTek MT8163V (Cortex-A53 Quad 1.5GHz), 512MB RAM, 4GB eMMC,
 
 ## Offene Verbesserungen
 
-- [ ] Layout-Shift beim Senden (User-Bubble einfuegen verschiebt Viewport ~5-10mm)
-- [ ] Streaming-Absatzabstand zu gross (fast 2 Zeilen, sollte 1.5 sein → weniger Sprung beim Rendern)
+- [x] Layout-Shift beim Senden — Page scroll preservation via MutationObserver
+- [x] Streaming-Absatzabstand — line_height 1.35 + double newline compression
 - [ ] Multi-Email-Konto Support (mehrere IMAP/SMTP Accounts, Rechte pro Konto: read/write/delete)
 - [ ] EPIM Kontakt-Erstellung: Telefon/E-Mail Fields korrekt mappen
 - [ ] Kanaluebergreifendes Routing (eine Session ueber mehrere Kanaele)

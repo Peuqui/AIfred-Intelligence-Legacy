@@ -106,6 +106,9 @@ def decode_fieldsdata(raw: str, field_map: Optional[dict[int, str]] = None) -> d
 def encode_fieldsdata(fields: dict[str, str], name_to_id: dict[str, int]) -> str:
     """Encode a dict back to EPIM hex-encoded FIELDSDATA.
 
+    Format per field: 8-char hex field_id + 4-char hex string_length + raw value.
+    Length is CHARACTER count (not byte count) — matching EPIM's native format.
+
     Args:
         fields: Dict of field_name → value.
         name_to_id: Mapping of human-readable name → field_id.
@@ -118,8 +121,8 @@ def encode_fieldsdata(fields: dict[str, str], name_to_id: dict[str, int]) -> str
         if name not in name_to_id:
             continue
         field_id = name_to_id[name]
-        encoded_value = value.encode("utf-8") if isinstance(value, str) else str(value).encode("utf-8")
-        parts.append(f"{field_id:08X}{len(encoded_value):04X}{value}")
+        str_value = str(value) if not isinstance(value, str) else value
+        parts.append(f"{field_id:08X}{len(str_value):04X}{str_value}")
     return "".join(parts)
 
 

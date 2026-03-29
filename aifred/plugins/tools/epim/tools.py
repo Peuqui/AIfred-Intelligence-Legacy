@@ -153,9 +153,46 @@ def get_epim_tools(lang: str = "de") -> list[Tool]:
 
         elif entity == "contact":
             name = data.get("name", "Neuer Kontakt")
+            # Fields can be nested {"fields": {"Telefon": "..."}} or flat {"Telefon": "..."}
+            fields = data.get("fields")
+            if not fields:
+                # Extract known contact fields from flat data dict
+                _contact_keys = {
+                    # Personal
+                    "Vorname", "Nachname", "Telefon", "Telefon 2", "Mobiltelefon",
+                    "E-Mail", "E-Mail 2", "Adresse", "Adresse 2", "Ort", "Ort 2",
+                    "PLZ", "PLZ 2", "Bundesland", "Land", "Geburtstag", "Jahrestag",
+                    "Webseite", "Fax", "Notizen", "Foto-URL", "Firma", "Position",
+                    # Business
+                    "Telefon geschäftlich", "Telefon geschäftlich 2",
+                    "Fax geschäftlich", "E-Mail geschäftlich",
+                    "Adresse geschäftlich", "Ort geschäftlich",
+                    "PLZ geschäftlich", "Bundesland geschäftlich", "Land geschäftlich",
+                    "Firma geschäftlich",
+                    # English aliases
+                    "first_name", "last_name", "phone", "mobile", "email",
+                    "address", "city", "zip", "state", "country", "birthday",
+                    "website", "fax", "company", "job_title", "notes",
+                    "work_phone", "work_email", "work_address", "work_city", "work_zip",
+                }
+                fields = {k: v for k, v in data.items() if k in _contact_keys and v}
+                # Map English field names to German EPIM names
+                _en_to_de = {
+                    "first_name": "Vorname", "last_name": "Nachname",
+                    "phone": "Telefon", "mobile": "Mobiltelefon",
+                    "email": "E-Mail", "address": "Adresse",
+                    "city": "Ort", "zip": "PLZ", "state": "Bundesland",
+                    "country": "Land", "birthday": "Geburtstag",
+                    "website": "Webseite", "fax": "Fax",
+                    "company": "Firma", "job_title": "Position", "notes": "Notizen",
+                    "work_phone": "Telefon geschäftlich", "work_email": "E-Mail geschäftlich",
+                    "work_address": "Adresse geschäftlich", "work_city": "Ort geschäftlich",
+                    "work_zip": "PLZ geschäftlich",
+                }
+                fields = {_en_to_de.get(k, k): v for k, v in fields.items()}
             new_id = db.create_contact(
                 name=name,
-                fields=data.get("fields"),
+                fields=fields if fields else None,
                 tags=data.get("tags"),
             )
             log_message(f"✅ epim_create: Contact {new_id} '{name}'")
