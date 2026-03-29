@@ -977,6 +977,101 @@ async def tts_stream(session_id: str):
 
 
 # ============================================================
+# ============================================================
+# AGENT TRIGGER (Webhook API)
+# ============================================================
+
+class AgentTriggerRequest(BaseModel):
+    """Request to trigger an agent action."""
+    message: str = Field(..., description="Message/prompt for the agent")
+    agent: str = Field(default="aifred", description="Agent to use (aifred, sokrates, salomo)")
+    token: str = Field(..., description="Auth token (configured in WEBHOOK_API_TOKEN env var)")
+    max_tier: int = Field(default=0, description="Max security tier (0=readonly, 1=communicate)")
+    delivery: str = Field(default="log", description="Delivery mode: log, announce, review, webhook")
+    channel: str = Field(default="", description="Target channel for announce delivery")
+    recipient: str = Field(default="", description="Recipient for announce delivery")
+    webhook_url: str = Field(default="", description="URL for webhook delivery")
+
+
+class AgentTriggerResponse(BaseModel):
+    """Response from agent trigger."""
+    success: bool
+    session_id: str = ""
+    message: str = ""
+
+
+@api_app.post("/agent/trigger", response_model=AgentTriggerResponse, tags=["Agent"])
+async def trigger_agent(request: AgentTriggerRequest, background_tasks: BackgroundTasks):
+    """
+    Trigger an agent action from an external system.
+
+    Runs in an isolated session with security tier enforcement.
+    The result is delivered based on the delivery mode.
+    Auth via token (WEBHOOK_API_TOKEN env var).
+    """
+    from .credential_broker import broker
+
+    # Auth check
+    expected_token = broker.get("webhook", "api_token")
+    if not expected_token:
+        raise HTTPException(status_code=503, detail="Webhook API not configured (WEBHOOK_API_TOKEN not set)")
+    if request.token != expected_token:
+        log_message("API: agent/trigger — invalid token", "warning")
+        raise HTTPException(status_code=403, detail="Invalid token")
+
+    # Tier cap: webhooks max tier 1 by default
+    from .security import DEFAULT_TIER_BY_SOURCE
+    max_allowed = DEFAULT_TIER_BY_SOURCE.get("webhook", 0)
+    effective_tier = min(request.max_tier, max_allowed)
+
+    log_message(f"API: agent/trigger — '{request.message[:50]}...' (agent={request.agent}, tier={effective_tier})")
+
+    # Build job payload and execute async
+    import secrets
+    session_id = f"webhook_{secrets.token_hex(8)}"
+
+    async def _run():
+        from .session_storage import create_empty_session
+        from .config import MESSAGE_HUB_OWNER
+        from .message_processor import _call_engine
+        from .scheduler import _deliver_result, Job
+
+        create_empty_session(session_id, owner=MESSAGE_HUB_OWNER)
+
+        response_text, _ = await _call_engine(
+            user_text=request.message,
+            session_id=session_id,
+            agent=request.agent,
+            max_tier=effective_tier,
+            source="webhook",
+        )
+
+        if response_text:
+            # Create a minimal Job for delivery
+            job = Job(
+                job_id=0,
+                name="webhook_trigger",
+                schedule_type="once",
+                schedule_expr="",
+                payload={
+                    "delivery": request.delivery,
+                    "channel": request.channel,
+                    "recipient": request.recipient,
+                    "webhook_url": request.webhook_url,
+                },
+            )
+            await _deliver_result(job, response_text, session_id)
+
+    background_tasks.add_task(_run)
+
+    return AgentTriggerResponse(
+        success=True,
+        session_id=session_id,
+        message="Agent triggered, running in background",
+    )
+
+
+# ============================================================
 # Export for api_transformer
 # ============================================================
 

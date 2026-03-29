@@ -308,7 +308,8 @@ async def _execute_job(job: Job) -> None:
     """Execute a single job by calling the AIfred engine in an isolated session.
 
     Creates a dedicated session for the job so it doesn't pollute
-    any existing conversation.
+    any existing conversation. Delivers the result based on the job's
+    delivery mode.
     """
     import secrets
     from .session_storage import create_empty_session
@@ -338,12 +339,109 @@ async def _execute_job(job: Job) -> None:
     if not response_text:
         raise RuntimeError(f"Engine returned no response for job '{job.name}'")
 
-    # Delivery: for now, log the result. Delivery modes (announce, review, webhook)
-    # will be added in P3.
-    log_message(f"Scheduler: job '{job.name}' result ({len(response_text)} chars)")
-
-    # Store result in job payload for later retrieval
+    # Store result in session debug log
     from .debug_bus import debug, session_scope
     with session_scope(session_id):
         debug(f"Scheduled job: {job.name}")
         debug(f"Result: {response_text[:500]}")
+
+    # Deliver result
+    await _deliver_result(job, response_text, session_id)
+
+
+# ============================================================
+# DELIVERY MODES
+# ============================================================
+
+async def _deliver_result(job: Job, response_text: str, session_id: str) -> None:
+    """Deliver a job result based on the configured delivery mode.
+
+    Modes:
+    - "log":      Only log (default, always happens)
+    - "announce": Send to a channel (discord, telegram, email)
+    - "review":   Write to session + notification (user reviews in UI)
+    - "webhook":  HTTP POST to an external URL
+    """
+    delivery = job.payload.get("delivery", "log")
+    log_message(f"Scheduler: delivering job '{job.name}' result via '{delivery}'")
+
+    if delivery == "announce":
+        await _deliver_announce(job, response_text)
+    elif delivery == "review":
+        _deliver_review(job, response_text, session_id)
+    elif delivery == "webhook":
+        await _deliver_webhook(job, response_text)
+    # "log" is implicit — always logged above
+
+
+async def _deliver_announce(job: Job, response_text: str) -> None:
+    """Send result to a channel plugin."""
+    channel_name = job.payload.get("channel", "")
+    recipient = job.payload.get("recipient", "")
+
+    if not channel_name:
+        log_message(f"Scheduler: job '{job.name}' announce has no channel configured", "warning")
+        return
+
+    from .plugin_registry import get_channel
+    from .envelope import OutboundMessage, InboundMessage
+
+    plugin = get_channel(channel_name)
+    if not plugin:
+        log_message(f"Scheduler: channel '{channel_name}' not found for job '{job.name}'", "error")
+        return
+
+    outbound = OutboundMessage(
+        channel=channel_name,
+        channel_id="",
+        recipient=recipient,
+        text=response_text,
+        metadata=job.payload.get("metadata", {}),
+    )
+    # Create a minimal inbound for send_reply interface
+    dummy_inbound = InboundMessage(
+        channel=channel_name,
+        channel_id="",
+        sender="scheduler",
+        text="",
+        timestamp=datetime.now(),
+    )
+    await plugin.send_reply(outbound, dummy_inbound)
+    log_message(f"Scheduler: announced to {channel_name}" + (f" ({recipient})" if recipient else ""))
+
+
+def _deliver_review(job: Job, response_text: str, session_id: str) -> None:
+    """Write notification for UI review."""
+    from .message_processor import write_hub_notification
+    write_hub_notification(
+        session_id=session_id,
+        session_title=f"Job: {job.name}",
+        channel="scheduler",
+        sender="system",
+        status="done",
+    )
+    log_message(f"Scheduler: job '{job.name}' result ready for review in session {session_id[:8]}")
+
+
+async def _deliver_webhook(job: Job, response_text: str) -> None:
+    """POST result to an external URL."""
+    import aiohttp
+
+    url = job.payload.get("webhook_url", "")
+    if not url:
+        log_message(f"Scheduler: job '{job.name}' webhook has no URL configured", "warning")
+        return
+
+    payload = {
+        "job_name": job.name,
+        "job_id": job.job_id,
+        "result": response_text,
+        "timestamp": _now_iso(),
+    }
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=30)) as resp:
+                log_message(f"Scheduler: webhook POST to {url} → {resp.status}")
+    except Exception as exc:
+        log_message(f"Scheduler: webhook POST to {url} failed: {exc}", "error")
