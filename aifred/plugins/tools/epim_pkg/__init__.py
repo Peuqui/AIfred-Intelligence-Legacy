@@ -16,11 +16,11 @@ class EpimPlugin:
         from ...lib.config import EPIM_ENABLED
         if not EPIM_ENABLED:
             return False
-        from ...lib.epim_db import get_epim_db
+        from .db import get_epim_db
         return get_epim_db() is not None
 
     def get_tools(self, ctx: PluginContext) -> list[Tool]:
-        from ...lib.epim_tools import get_epim_tools
+        from .tools import get_epim_tools
         return get_epim_tools(lang=ctx.lang)
 
     def get_prompt_instructions(self, lang: str) -> str:

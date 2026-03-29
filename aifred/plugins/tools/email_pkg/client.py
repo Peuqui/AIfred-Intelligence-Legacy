@@ -15,7 +15,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import Optional
 
-from .config import (
+from ....lib.config import (
     EMAIL_FROM,
     EMAIL_IMAP_HOST,
     EMAIL_IMAP_PORT,
@@ -26,7 +26,7 @@ from .config import (
     EMAIL_SMTP_PORT,
     EMAIL_USER,
 )
-from .logging_utils import log_message
+from ....lib.logging_utils import log_message
 
 
 @dataclass

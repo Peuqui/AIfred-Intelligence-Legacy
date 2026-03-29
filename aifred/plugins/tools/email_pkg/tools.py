@@ -6,8 +6,8 @@ All IMAP/SMTP operations run in asyncio.to_thread() (blocking I/O).
 
 import asyncio
 
-from .function_calling import Tool
-from .prompt_loader import load_tool_description
+from ....lib.function_calling import Tool
+from ....lib.prompt_loader import load_tool_description
 
 
 def get_email_tools(session_id: str = "") -> list[Tool]:
@@ -18,7 +18,7 @@ def get_email_tools(session_id: str = "") -> list[Tool]:
         action = action.lower().strip()
 
         if action == "check":
-            from .email_client import check_inbox
+            from .client import check_inbox
             n = int(kwargs.get("n", "10"))
             folder = kwargs.get("folder", "INBOX")
             emails = await asyncio.to_thread(check_inbox, n=min(n, 20), folder=folder)
@@ -31,7 +31,7 @@ def get_email_tools(session_id: str = "") -> list[Tool]:
             return "\n\n".join(lines)
 
         elif action == "read":
-            from .email_client import read_email
+            from .client import read_email
             msg_id = kwargs.get("msg_id", "")
             if not msg_id:
                 return "Error: msg_id required"
@@ -49,7 +49,7 @@ def get_email_tools(session_id: str = "") -> list[Tool]:
             return "\n".join(parts)
 
         elif action == "search":
-            from .email_client import search_emails
+            from .client import search_emails
             query = kwargs.get("query", "")
             if not query:
                 return "Error: query required"
@@ -63,7 +63,7 @@ def get_email_tools(session_id: str = "") -> list[Tool]:
             return "\n".join(lines)
 
         elif action == "delete":
-            from .email_client import delete_email
+            from .client import delete_email
             msg_id = kwargs.get("msg_id", "")
             if not msg_id:
                 return "Error: msg_id required"
@@ -72,7 +72,7 @@ def get_email_tools(session_id: str = "") -> list[Tool]:
             return result
 
         elif action == "send":
-            from .email_client import send_email
+            from .client import send_email
             to = kwargs.get("to", "")
             subject = kwargs.get("subject", "")
             body = kwargs.get("body", "")
@@ -83,7 +83,7 @@ def get_email_tools(session_id: str = "") -> list[Tool]:
             # Register route so replies land in the same session
             if session_id and "[msg_id:" in result:
                 msg_id = result.split("[msg_id:")[1].rstrip("]")
-                from .routing_table import routing_table
+                from ....lib.routing_table import routing_table
                 routing_table.set_route("email", msg_id, session_id)
 
             return result

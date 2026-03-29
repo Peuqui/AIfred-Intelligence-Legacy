@@ -208,7 +208,7 @@ class EmailChannel(BaseChannel):
 
     async def send_reply(self, outbound: "OutboundMessage", original: "InboundMessage") -> None:
         """Send an email reply via SMTP."""
-        from ...lib.email_client import send_email
+        from ..tools.email_pkg.client import send_email
 
         subject = outbound.metadata.get("subject", "Re: AIfred")
         reply_to_id = outbound.metadata.get("in_reply_to")
@@ -269,7 +269,7 @@ def _get_existing_uids(imap: imaplib.IMAP4_SSL) -> set[bytes]:
 
 def _fetch_email_as_inbound(imap: imaplib.IMAP4_SSL, uid: bytes) -> "InboundMessage | None":
     """Fetch a single email by UID and convert to InboundMessage."""
-    from ...lib.email_client import _decode_header, _extract_body
+    from ..tools.email_pkg.client import _decode_header, _extract_body
     from ...lib.config import EMAIL_MAX_BODY_CHARS
     from ...lib.envelope import InboundMessage
 

@@ -11,7 +11,7 @@ import json
 import logging
 from typing import Any, Optional
 
-from .function_calling import Tool
+from ....lib.function_calling import Tool
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +58,7 @@ def get_epim_tools(lang: str = "de") -> list[Tool]:
 
     Returns empty list if EPIM is not available.
     """
-    from .epim_db import get_epim_db
+    from .db import get_epim_db
 
     db = get_epim_db()
     if db is None:
@@ -76,7 +76,7 @@ def get_epim_tools(lang: str = "de") -> list[Tool]:
         limit: int = 20,
     ) -> str:
         """Search EPIM database."""
-        from .logging_utils import log_message
+        from ....lib.logging_utils import log_message
         log_message(f"🗓️ epim_search: {entity_type} query={query}")
 
         entity = _resolve_entity(entity_type)
@@ -114,7 +114,7 @@ def get_epim_tools(lang: str = "de") -> list[Tool]:
     # ----------------------------------------------------------
     async def _epim_create(entity_type: str, data: dict) -> str:
         """Create a new EPIM entry."""
-        from .logging_utils import log_message
+        from ....lib.logging_utils import log_message
         log_message(f"🗓️ epim_create: {entity_type}")
 
         entity = _resolve_entity(entity_type)
@@ -194,7 +194,7 @@ def get_epim_tools(lang: str = "de") -> list[Tool]:
     # ----------------------------------------------------------
     async def _epim_update(entity_type: str, entity_id: int, data: dict) -> str:
         """Update an existing EPIM entry."""
-        from .logging_utils import log_message
+        from ....lib.logging_utils import log_message
         log_message(f"🗓️ epim_update: {entity_type} id={entity_id}")
 
         entity = _resolve_entity(entity_type)
@@ -233,7 +233,7 @@ def get_epim_tools(lang: str = "de") -> list[Tool]:
     # ----------------------------------------------------------
     async def _epim_delete(entity_type: str, entity_id: int) -> str:
         """Soft-delete an EPIM entry."""
-        from .logging_utils import log_message
+        from ....lib.logging_utils import log_message
         log_message(f"🗓️ epim_delete: {entity_type} id={entity_id}")
 
         entity = _resolve_entity(entity_type)
@@ -258,7 +258,7 @@ def get_epim_tools(lang: str = "de") -> list[Tool]:
     # ----------------------------------------------------------
     # Tool definitions
     # ----------------------------------------------------------
-    from .prompt_loader import load_prompt
+    from ....lib.prompt_loader import load_prompt
     search_desc = load_prompt("shared/epim_tool_search", lang=lang)
     create_desc = load_prompt("shared/epim_tool_create", lang=lang)
     update_desc = load_prompt("shared/epim_tool_update", lang=lang)

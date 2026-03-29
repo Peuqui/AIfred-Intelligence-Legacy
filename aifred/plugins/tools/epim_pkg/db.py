@@ -39,7 +39,7 @@ def get_epim_db() -> Optional["EpimDatabase"]:
         if _instance is not None:
             return _instance
 
-        from .config import EPIM_DB_PATH, EPIM_ENABLED, EPIM_FB_DIR, EPIM_FB_LIB
+        from ....lib.config import EPIM_DB_PATH, EPIM_ENABLED, EPIM_FB_DIR, EPIM_FB_LIB
 
         if not EPIM_ENABLED:
             return None

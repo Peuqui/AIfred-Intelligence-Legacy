@@ -17,7 +17,7 @@ class EmailPlugin:
         return EMAIL_ENABLED
 
     def get_tools(self, ctx: PluginContext) -> list[Tool]:
-        from ...lib.email_tools import get_email_tools
+        from .tools import get_email_tools
         return get_email_tools(session_id=ctx.session_id)
 
     def get_prompt_instructions(self, lang: str) -> str:
