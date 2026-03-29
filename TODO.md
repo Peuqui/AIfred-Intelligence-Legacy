@@ -32,12 +32,56 @@ Pipeline: Inbound Sanitization → Tier-Check → Tool-Aufruf → Output-Sanitiz
 - [ ] Nach Aktivierung: Aufnahme → STT → AIfred Engine → TTS → Wiedergabe
 - [ ] Konfigurierbar: Wake Word, Empfindlichkeit, Timeout
 
-### Alexa-Puck Mod / Raumintercom
-- [ ] Alexa-Hardware (Echo Dot Gen 1/2) als Audio-Terminal nutzen
-- [ ] Alexa-Software entfernen, eigene Firmware/Client drauf
-- [ ] Kommunikation via MQTT oder WebSocket zum AIfred-Server
-- [ ] Mikrofon → Wake Word → STT → AIfred → TTS → Lautsprecher
-- [ ] Mehrere Pucks im Haus = AIfred ueberall per Sprache erreichbar
+### Echo Dot 2 Puck-Mod / Raumintercom
+
+2x Echo Dot Gen 2 ("biscuit") bestellt (~15-18 EUR gesamt).
+Hardware: MediaTek MT8163V (Cortex-A53 Quad 1.5GHz), 512MB RAM, 4GB eMMC,
+7-Mikrofon-Array, TI TLV320DAC3203 Audio-Codec, Fire OS (Android 5.1).
+
+#### Phase 1: Root + Alexa deaktivieren (Fire OS behalten!)
+- [ ] Root via amonet-biscuit (persistent/untethered, Preloader-Patch in eMMC)
+  - Geraet oeffnen, UART-Testpads kurzschliessen fuer Download-Modus
+  - amonet Python-Script ausfuehren → Preloader patchen → TWRP flashen → Magisk
+  - GitHub: k4y0z/amonet-biscuit
+- [ ] OTA-Updates blockieren (DNS/hosts/iptables) — KRITISCH, sonst ueberschreibt Amazon
+- [ ] Alexa-Services deaktivieren (pm disable):
+  - com.amazon.dee.app (Alexa App)
+  - com.amazon.avs (Alexa Voice Service)
+  - com.amazon.device.sync (Cloud Sync)
+  - com.amazon.ota.forced (OTA Updates)
+- [ ] Termux installieren (ADB sideload) fuer Python-Umgebung
+
+#### Phase 2: AIfred Puck-Client (Python auf Termux)
+- [ ] openWakeWord fuer Wake Word Detection (laeuft lokal auf ARM Cortex-A53)
+- [ ] Mikrofon-Zugriff ueber Android AudioRecord API (pyaudio/sounddevice)
+- [ ] WebSocket-Client zum AIfred-Server (Mini)
+- [ ] Nach Wake Word: Audio-Stream per WebSocket an AIfred senden
+- [ ] TTS-Audio zurueck empfangen und ueber Lautsprecher abspielen
+- [ ] LED-Ring ansteuern (Aufnahme=blau, Antwort=gruen, Fehler=rot)
+- [ ] Open-Source Beamforming-Ersatz (webrtcvad + Delay-and-Sum)
+  - Amazons proprietaeres Beamforming geht verloren wenn AVS deaktiviert wird
+  - webrtcvad + einfaches Delay-and-Sum reicht fuer Raumgroessen bis ~4-5m
+
+#### Phase 3: PuckChannel Plugin (AIfred-seitig)
+- [ ] Neuer Channel-Plugin: PuckChannel (BaseChannel Pattern)
+- [ ] WebSocket-Server, jeder Puck meldet sich mit Raum-Name an
+- [ ] Audio empfangen → Whisper STT → Text
+- [ ] Text → AIfred Engine (source="puck", Tier je nach Stimmerkennung)
+- [ ] Antwort → Piper TTS → Audio-Stream zurueck an den aktiven Puck
+- [ ] Audio Manager kennt alle Pucks und routet Audio zum richtigen Raum
+
+#### Phase 4: Raum-Routing + Intercom + Notfall
+- [ ] Aktiver Puck = Raum wo Wake Word gehoert wurde
+- [ ] "AIfred, spiel in der Kueche" → Audio-Routing umschalten
+- [ ] Intercom: "Sage meinem Sohn das Essen ist fertig" → Nachricht an anderen Puck
+- [ ] Notfall-Wake-Word ("Alfred Hilfe") → Alarm-Sound auf ALLEN Pucks + Push-Notification
+- [ ] Puck bei Eltern (untere Wohnung) als Notruf-Terminal
+
+#### Phase 5: Stimmerkennung (optional, spaeter)
+- [ ] Speaker Verification (pyannote-audio oder SpeechBrain)
+- [ ] Stimm-Registrierung: 5 Sekunden Sprachprobe als Embedding speichern
+- [ ] Automatische Sprecher-Erkennung nach Wake Word
+- [ ] Rechte ableiten: Owner=Tier 4, Family=Tier 1, Unbekannt=Blocked
 
 ---
 
