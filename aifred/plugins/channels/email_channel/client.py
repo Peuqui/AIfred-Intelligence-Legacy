@@ -278,3 +278,79 @@ def delete_email(msg_id: str, folder: str = "INBOX") -> str:
 
     log_message(f"📧 Email: deleted msg {msg_id} from {folder}")
     return f"Email {msg_id} deleted from {folder}"
+
+
+def move_email(msg_id: str, target_folder: str, source_folder: str = "INBOX") -> str:
+    """Move an email to a different folder via IMAP COPY + DELETE."""
+    with _imap_connect() as imap:
+        imap.select(source_folder)
+        # COPY to target, then delete from source
+        status, _ = imap.copy(msg_id.encode(), target_folder)
+        if status != "OK":
+            raise ValueError(f"COPY failed: {status}")
+        imap.store(msg_id.encode(), '+FLAGS', '\\Deleted')
+        imap.expunge()
+
+    log_message(f"📧 Email: moved msg {msg_id} from {source_folder} to {target_folder}")
+    return f"Email {msg_id} moved to {target_folder}"
+
+
+def list_folders() -> list[str]:
+    """List all IMAP folders/mailboxes."""
+    with _imap_connect() as imap:
+        status, folder_data = imap.list()
+        if status != "OK":
+            return []
+        folders = []
+        for item in folder_data:
+            if isinstance(item, bytes):
+                # Format: (\\flags) "delimiter" "name"
+                parts = item.decode("utf-8", errors="replace")
+                # Extract folder name (last quoted string or last word)
+                if '"' in parts:
+                    name = parts.rstrip('"').rsplit('"', 1)[-1].strip()
+                    if not name:
+                        # Try second-to-last quoted segment
+                        segments = parts.split('"')
+                        name = segments[-2] if len(segments) >= 2 else parts.split()[-1]
+                else:
+                    name = parts.split()[-1]
+                folders.append(name)
+
+    log_message(f"📧 Email: listed {len(folders)} folders")
+    return folders
+
+
+def create_folder(folder_name: str) -> str:
+    """Create a new IMAP folder/mailbox."""
+    with _imap_connect() as imap:
+        status, response = imap.create(folder_name)
+        if status != "OK":
+            raise ValueError(f"CREATE failed: {status} — {response}")
+
+    log_message(f"📧 Email: created folder '{folder_name}'")
+    return f"Folder '{folder_name}' created"
+
+
+def mark_email(msg_id: str, flag: str, folder: str = "INBOX") -> str:
+    """Set or remove a flag on an email.
+
+    flag: "read", "unread", "flagged", "unflagged"
+    """
+    flag_map = {
+        "read": ("+FLAGS", "\\Seen"),
+        "unread": ("-FLAGS", "\\Seen"),
+        "flagged": ("+FLAGS", "\\Flagged"),
+        "unflagged": ("-FLAGS", "\\Flagged"),
+    }
+    if flag not in flag_map:
+        raise ValueError(f"Unknown flag: {flag}. Use: {list(flag_map.keys())}")
+
+    action, imap_flag = flag_map[flag]
+
+    with _imap_connect() as imap:
+        imap.select(folder)
+        imap.store(msg_id.encode(), action, imap_flag)
+
+    log_message(f"📧 Email: marked msg {msg_id} as {flag}")
+    return f"Email {msg_id} marked as {flag}"

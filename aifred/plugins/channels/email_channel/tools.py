@@ -89,8 +89,41 @@ def get_email_tools(session_id: str = "") -> list[Tool]:
 
             return result
 
+        elif action == "move":
+            from .client import move_email
+            msg_id = kwargs.get("msg_id", "")
+            target = kwargs.get("target_folder", "")
+            if not msg_id or not target:
+                return "Error: msg_id and target_folder required"
+            folder = kwargs.get("folder", "INBOX")
+            result = await asyncio.to_thread(move_email, msg_id=msg_id, target_folder=target, source_folder=folder)
+            return result
+
+        elif action == "list_folders":
+            from .client import list_folders
+            folders = await asyncio.to_thread(list_folders)
+            return f"Total: {len(folders)} folders\n" + "\n".join(f"📁 {f}" for f in folders)
+
+        elif action == "create_folder":
+            folder_name = kwargs.get("folder_name", "")
+            if not folder_name:
+                return "Error: folder_name required"
+            from .client import create_folder
+            result = await asyncio.to_thread(create_folder, folder_name=folder_name)
+            return result
+
+        elif action == "mark":
+            from .client import mark_email
+            msg_id = kwargs.get("msg_id", "")
+            flag = kwargs.get("flag", "")
+            if not msg_id or not flag:
+                return "Error: msg_id and flag required (read/unread/flagged/unflagged)"
+            folder = kwargs.get("folder", "INBOX")
+            result = await asyncio.to_thread(mark_email, msg_id=msg_id, flag=flag, folder=folder)
+            return result
+
         else:
-            return f"Unknown action: {action}. Valid: check, read, search, delete, send"
+            return f"Unknown action: {action}. Valid: check, read, search, delete, send, move, list_folders, create_folder, mark"
 
     return [
         Tool(
@@ -102,7 +135,7 @@ def get_email_tools(session_id: str = "") -> list[Tool]:
                 "properties": {
                     "action": {
                         "type": "string",
-                        "enum": ["check", "read", "search", "delete", "send"],
+                        "enum": ["check", "read", "search", "delete", "send", "move", "list_folders", "create_folder", "mark"],
                         "description": "Action to perform",
                     },
                     "msg_id": {
@@ -132,6 +165,19 @@ def get_email_tools(session_id: str = "") -> list[Tool]:
                     "folder": {
                         "type": "string",
                         "description": "IMAP folder (default INBOX)",
+                    },
+                    "target_folder": {
+                        "type": "string",
+                        "description": "Target folder for move action",
+                    },
+                    "folder_name": {
+                        "type": "string",
+                        "description": "Folder name for create_folder action",
+                    },
+                    "flag": {
+                        "type": "string",
+                        "enum": ["read", "unread", "flagged", "unflagged"],
+                        "description": "Flag for mark action",
                     },
                 },
                 "required": ["action"],
