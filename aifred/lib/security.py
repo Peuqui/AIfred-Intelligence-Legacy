@@ -259,11 +259,26 @@ def needs_confirmation(source: str, tool_tier: int, max_tier: int = -1) -> bool:
     return tool_tier >= TIER_WRITE_DATA
 
 
+class CircuitBreakerTripped(Exception):
+    """Raised when a channel's circuit breaker is open."""
+
+
 class _RateTracker:
-    """Track tool call counts per source within a sliding time window."""
+    """Track tool call counts per source within a sliding time window.
+
+    Also implements circuit breaker: if rate limit is exceeded N times
+    within a window, the channel is temporarily blocked.
+    """
+
+    # After this many rate limit violations, the circuit breaker trips
+    _BREAKER_THRESHOLD = 3
+    # Channel is blocked for this many seconds after tripping
+    _BREAKER_COOLDOWN_SEC = 300  # 5 minutes
 
     def __init__(self) -> None:
         self._calls: list[tuple[float, str]] = []  # (timestamp, source)
+        self._violations: dict[str, list[float]] = {}  # source → [violation_timestamps]
+        self._tripped: dict[str, float] = {}  # source → tripped_until timestamp
 
     def record_and_check(self, source: str, now: float) -> bool:
         """Record a call and return True if within limit, False if exceeded."""
@@ -281,7 +296,41 @@ class _RateTracker:
         count = sum(1 for _, s in self._calls if s == source)
         self._calls.append((now, source))
 
-        return count < limit
+        if count >= limit:
+            self._record_violation(source, now)
+            return False
+        return True
+
+    def is_tripped(self, source: str, now: float) -> bool:
+        """Check if the circuit breaker is currently open for a source."""
+        tripped_until = self._tripped.get(source, 0)
+        if now < tripped_until:
+            return True
+        # Auto-reset after cooldown
+        if source in self._tripped:
+            del self._tripped[source]
+            from .logging_utils import log_message
+            log_message(f"Security: circuit breaker reset for '{source}'")
+        return False
+
+    def _record_violation(self, source: str, now: float) -> None:
+        """Track rate limit violations and trip breaker if threshold exceeded."""
+        if source not in self._violations:
+            self._violations[source] = []
+        # Prune old violations
+        cutoff = now - 60  # Violations within last 60 seconds
+        self._violations[source] = [t for t in self._violations[source] if t > cutoff]
+        self._violations[source].append(now)
+
+        if len(self._violations[source]) >= self._BREAKER_THRESHOLD:
+            self._tripped[source] = now + self._BREAKER_COOLDOWN_SEC
+            self._violations[source] = []
+            from .logging_utils import log_message
+            log_message(
+                f"Security: CIRCUIT BREAKER TRIPPED for '{source}' — "
+                f"blocked for {self._BREAKER_COOLDOWN_SEC}s",
+                "error",
+            )
 
 
 # Singleton rate tracker
@@ -289,9 +338,17 @@ _rate_tracker = _RateTracker()
 
 
 def check_rate_limit(source: str) -> None:
-    """Check if tool call rate is within limits. Raises RateLimitReached if not."""
+    """Check rate limit and circuit breaker. Raises on violation."""
     import time
-    if not _rate_tracker.record_and_check(source, time.time()):
+    now = time.time()
+
+    # Circuit breaker check first
+    if _rate_tracker.is_tripped(source, now):
+        raise CircuitBreakerTripped(
+            f"Channel '{source}' is temporarily blocked (circuit breaker)"
+        )
+
+    if not _rate_tracker.record_and_check(source, now):
         raise RateLimitReached(
             f"Rate limit exceeded for source '{source}'"
         )

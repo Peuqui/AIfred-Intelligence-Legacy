@@ -83,7 +83,7 @@ class ToolKit:
             args = arguments
 
         # Chain depth limit
-        from .security import check_rate_limit, RateLimitReached
+        from .security import check_rate_limit, RateLimitReached, CircuitBreakerTripped
         from .config import SECURITY_MAX_TOOL_CHAIN_DEPTH
 
         self._call_count += 1
@@ -95,6 +95,9 @@ class ToolKit:
         # Rate limit check
         try:
             check_rate_limit(self._source)
+        except CircuitBreakerTripped as exc:
+            logger.error(str(exc))
+            return json.dumps({"error": str(exc)})
         except RateLimitReached as exc:
             logger.warning(str(exc))
             return json.dumps({"error": str(exc)})

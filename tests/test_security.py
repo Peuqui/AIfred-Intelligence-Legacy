@@ -276,6 +276,49 @@ class TestRateTracker:
         assert tracker.record_and_check("email", now + 61) is True
 
 
+# ── Circuit Breaker ───────────────────────────────────────────
+
+class TestCircuitBreaker:
+    def test_breaker_not_tripped_initially(self):
+        tracker = _RateTracker()
+        assert tracker.is_tripped("email", 1000.0) is False
+
+    def test_breaker_trips_after_repeated_violations(self):
+        tracker = _RateTracker()
+        now = 1000.0
+        # Trigger rate limit violations 3 times (threshold)
+        for violation in range(3):
+            # Fill up the rate limit
+            for i in range(6):
+                tracker.record_and_check("email", now + violation * 10 + i)
+
+        # Should now be tripped
+        assert tracker.is_tripped("email", now + 30) is True
+
+    def test_breaker_resets_after_cooldown(self):
+        tracker = _RateTracker()
+        now = 1000.0
+        # Trip the breaker
+        for violation in range(3):
+            for i in range(6):
+                tracker.record_and_check("email", now + violation * 10 + i)
+
+        assert tracker.is_tripped("email", now + 30) is True
+        # After cooldown (300s), should reset
+        assert tracker.is_tripped("email", now + 331) is False
+
+    def test_breaker_does_not_affect_other_channels(self):
+        tracker = _RateTracker()
+        now = 1000.0
+        # Trip email breaker
+        for violation in range(3):
+            for i in range(6):
+                tracker.record_and_check("email", now + violation * 10 + i)
+
+        assert tracker.is_tripped("email", now + 30) is True
+        assert tracker.is_tripped("telegram", now + 30) is False
+
+
 # ── Audit Log ─────────────────────────────────────────────────
 
 class TestAuditLog:
