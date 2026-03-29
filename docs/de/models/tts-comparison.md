@@ -236,7 +236,7 @@ ist ein Wechsel problemlos.
 ## Empfohlene Evaluierungsreihenfolge
 
 1. ~~**MOSS-TTS Local** testen~~ ✅ Integriert! (Docker-Container, VRAM-Reservation, gute Qualitaet)
-2. ~~**MOSS-TTS Delay 8B** testen~~ ✅ Integriert! (RTX 8000 float32, eigene generate()-API, Web-UI mit Param-Slidern. Siehe [docs/moss-tts-8b-turing-notes.md](moss-tts-8b-turing-notes.md))
+2. ~~**MOSS-TTS Delay 8B** testen~~ ✅ Integriert! (RTX 8000 float32, eigene generate()-API, Web-UI mit Param-Slidern. Siehe [moss-tts-8b-notes.md](moss-tts-8b-notes.md))
 3. **MOSS-TTS-Realtime** testen (Streaming via `push_text`, gleiche VRAM-Klasse wie Local)
 4. **F5-TTS** mit deutschem Fine-Tune testen (kleinstes Modell, schnellstes)
 5. **Qwen3-TTS** testen (nativer DE-Support, Streaming via Fork)

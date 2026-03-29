@@ -2,8 +2,8 @@
 
 AIfred uses a unified plugin system. All plugins live in `aifred/plugins/`. System code (interfaces, registry, security) lives in `aifred/lib/`.
 
-> **Security:** Vollstaendige Security-Architektur siehe [security-architecture.md](security-architecture.md).
-> Kurzfassung: Jedes Tool braucht einen `tier`, Credentials nur ueber `broker.get()`.
+> **Security:** Full security architecture: [docs/en/architecture/security.md](../architecture/security.md).
+> TL;DR: Every Tool needs a `tier`, credentials only via `broker.get()`.
 
 ---
 

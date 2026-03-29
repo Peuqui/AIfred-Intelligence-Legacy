@@ -5,7 +5,7 @@ llama-swap is an OpenAI-compatible proxy that manages llama-server instances.
 It handles model loading/unloading, GPU allocation, and hot-swapping.
 chat() and chat_stream() are inherited from OpenAICompatibleBackend.
 
-See docs/llamacpp-setup.md for hardware configuration and performance tuning.
+See docs/en/guides/llamacpp-setup.md for hardware configuration and performance tuning.
 """
 
 import asyncio

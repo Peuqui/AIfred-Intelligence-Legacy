@@ -87,7 +87,7 @@ The two configurations live side-by-side in my llama-swap config:
 
 Both hot-swappable, model stays loaded, zero downtime. Best of both worlds.
 
-**Full benchmark data:** [Tensor Split Benchmark on GitHub](https://github.com/Peuqui/AIfred-Intelligence/blob/main/docs/tensor-split-benchmark.md)
+**Full benchmark data:** [Tensor Split Benchmark on GitHub](https://github.com/Peuqui/AIfred-Intelligence/blob/main/docs/en/benchmarks/tensor-split.md)
 
 **GitHub:** https://github.com/Peuqui/AIfred-Intelligence
 

@@ -44,7 +44,7 @@ Das LLM entscheidet autonom welche Tools es braucht — OpenAI-kompatible Tool-I
 - **History-Kompression**: Intelligente Kompression bei 70% Context-Auslastung für unbegrenzte Konversationen
 - **Automatisches Modell-Lifecycle**: Zero-Config — neue Modelle beim Start automatisch erkannt, entfernte bereinigt
 - **Sampling-Parameter**: Per-Agent Temperature, Top-K, Top-P, Min-P, Repeat-Penalty (Auto/Manual)
-- **Performance**: Direct-IO für schnelles Laden, Details in der [Modell-Parameter-Doku](docs/model-recommended-params.md)
+- **Performance**: Direct-IO für schnelles Laden, Details in der [Modell-Parameter-Doku](docs/de/benchmarks/model-params.md)
 
 ### 🎤 Sprach- & Vision-Interface
 
@@ -957,12 +957,12 @@ curl http://localhost:8002/api/sessions
 ### Voraussetzungen
 - Python 3.10+
 - **LLM Backend** (wähle eins):
-  - **llama.cpp** via llama-swap (GGUF-Modelle) - beste Performance, volle GPU-Kontrolle ([Setup-Anleitung](docs/llamacpp-setup.md))
+  - **llama.cpp** via llama-swap (GGUF-Modelle) - beste Performance, volle GPU-Kontrolle ([Setup-Anleitung](docs/en/guides/llamacpp-setup.md))
   - **Ollama** (einfach, GGUF-Modelle) - empfohlen für Einsteiger
   - **vLLM** (schnell, AWQ-Modelle) - beste Performance für AWQ (erfordert Compute Capability 7.5+)
   - **TabbyAPI** (ExLlamaV2/V3, EXL2-Modelle) - experimentell
 
-> **Zero-Config Modell-Management (llama.cpp-Backend):** Nach dem einmaligen Setup genügt `ollama pull model` oder `hf download ...`, dann llama-swap neu starten — der Autoscan konfiguriert alles automatisch (YAML-Einträge, Gruppen, VRAM-Cache). Vollständige Anleitung: [docs/deployment.md](docs/deployment.md).
+> **Zero-Config Modell-Management (llama.cpp-Backend):** Nach dem einmaligen Setup genügt `ollama pull model` oder `hf download ...`, dann llama-swap neu starten — der Autoscan konfiguriert alles automatisch (YAML-Einträge, Gruppen, VRAM-Cache). Vollständige Anleitung: [docs/en/guides/deployment.md](docs/en/guides/deployment.md).
 - 8GB+ RAM (12GB+ empfohlen für größere Modelle)
 - Docker (für ChromaDB Vector Cache)
 - **GPU**: NVIDIA GPU empfohlen (siehe [GPU Compatibility Guide](docs/GPU_COMPATIBILITY.md))
@@ -1957,14 +1957,13 @@ systemctl status ollama
 ## 📚 Dokumentation
 
 Weitere Dokumentation im `docs/` Verzeichnis:
-- [Architecture Overview](docs/architecture/)
-- [API Documentation](docs/api/)
-- [Plugin-Entwicklung](docs/plugin-development.md) (mit Templates)
-- [Message Hub Architektur](docs/plans/message-hub-architecture.md)
-- [LLM-Aufruf-Architektur](docs/llm-call-architecture.md)
-- [Migration Guide](docs/infrastructure/MIGRATION.md)
-- [llama.cpp + llama-swap Setup Guide](docs/llamacpp-setup.md)
-- [Tensor Split Benchmark: Speed vs. Full Context](docs/tensor-split-benchmark.md)
+- [Security-Architektur](docs/de/architecture/security.md)
+- [Plugin-Entwicklung](docs/en/guides/plugin-development.md) (mit Templates)
+- [Message Hub Architektur](docs/de/architecture/message-hub.md)
+- [LLM-Aufruf-Architektur](docs/en/architecture/llm-call.md)
+- [llama.cpp + llama-swap Setup Guide](docs/en/guides/llamacpp-setup.md)
+- [Deployment Guide](docs/en/guides/deployment.md)
+- [Tensor Split Benchmark: Speed vs. Full Context](docs/en/benchmarks/tensor-split.md)
 
 ---
 

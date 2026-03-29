@@ -227,7 +227,7 @@ BACKEND_URLS = {
     "ollama": DEFAULT_OLLAMA_URL,
     "vllm": DEFAULT_VLLM_URL,      # Port 8001 for dev (8000 on production MiniPC)
     "tabbyapi": DEFAULT_TABBYAPI_URL,
-    "llamacpp": DEFAULT_LLAMACPP_URL,  # llama-swap proxy (see docs/llamacpp-setup.md)
+    "llamacpp": DEFAULT_LLAMACPP_URL,  # llama-swap proxy (see docs/en/guides/llamacpp-setup.md)
     "cloud_api": "",  # Dynamic - set based on provider selection
 }
 

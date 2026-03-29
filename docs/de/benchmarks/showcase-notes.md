@@ -609,9 +609,9 @@ Alle 200B+ Modelle stabil mit 130-200 Tokens:
 
 ### Dokumentation
 
-- 📄 [docs/model-recommended-params.md](model-recommended-params.md) - Deutsch
-- 📄 [docs/model-recommended-params.en.md](model-recommended-params.en.md) - Englisch
-- 📄 [docs/tensor-split-benchmark.md](tensor-split-benchmark.md) - Tensor Split Speed Benchmark (Multi-GPU)
+- 📄 [Modell-Parameter (DE)](model-params.md) - Deutsch
+- 📄 [Model Params (EN)](../../en/benchmarks/model-params.md) - Englisch
+- 📄 [Tensor Split Benchmark](../../en/benchmarks/tensor-split.md) - Tensor Split Speed Benchmark (Multi-GPU)
 
 ## 🆕 Update 2026-02-28: Distributed Inference via RPC (LAN)
 

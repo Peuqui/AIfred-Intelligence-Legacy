@@ -44,7 +44,7 @@ The LLM autonomously decides which tools to use — OpenAI-compatible tool infra
 - **History Compression**: Intelligent compression at 70% context utilization for unlimited conversations
 - **Automatic Model Lifecycle**: Zero-config — new models auto-discovered on start, removed models auto-cleaned
 - **Sampling Parameters**: Per-agent Temperature, Top-K, Top-P, Min-P, Repeat-Penalty (Auto/Manual)
-- **Performance**: Direct-IO for fast model loading, details in [Model Parameter Docs](docs/model-recommended-params.md)
+- **Performance**: Direct-IO for fast model loading, details in [Model Parameter Docs](docs/en/benchmarks/model-params.md)
 
 ### 🎤 Voice & Vision Interface
 
@@ -1051,12 +1051,12 @@ curl http://localhost:8002/api/sessions
 ### Prerequisites
 - Python 3.10+
 - **LLM Backend** (choose one):
-  - **llama.cpp** via llama-swap (GGUF models) - best performance, full GPU control ([setup guide](docs/llamacpp-setup.md))
+  - **llama.cpp** via llama-swap (GGUF models) - best performance, full GPU control ([setup guide](docs/en/guides/llamacpp-setup.md))
   - **Ollama** (easy, GGUF models) - recommended for getting started
   - **vLLM** (fast, AWQ models) - best performance for AWQ (requires Compute Capability 7.5+)
   - **TabbyAPI** (ExLlamaV2/V3, EXL2 models) - experimental
 
-> **Zero-Config Model Management (llama.cpp backend):** After the initial setup, adding models requires no manual configuration. Just run `ollama pull model` or `hf download ...`, then restart llama-swap — the autoscan configures everything automatically (YAML entries, groups, VRAM cache). See [docs/deployment.md](docs/deployment.md) for the full setup guide.
+> **Zero-Config Model Management (llama.cpp backend):** After the initial setup, adding models requires no manual configuration. Just run `ollama pull model` or `hf download ...`, then restart llama-swap — the autoscan configures everything automatically (YAML entries, groups, VRAM cache). See [docs/en/guides/deployment.md](docs/en/guides/deployment.md) for the full setup guide.
 - 8GB+ RAM (12GB+ recommended for larger models)
 - Docker (for ChromaDB Vector Cache)
 - **GPU**: NVIDIA GPU recommended (see [GPU Compatibility Guide](docs/GPU_COMPATIBILITY.md))
@@ -2094,14 +2094,13 @@ systemctl status ollama
 ## 📚 Documentation
 
 More documentation in the `docs/` directory:
-- [Architecture Overview](docs/architecture/)
-- [API Documentation](docs/api/)
-- [Plugin Development Guide](docs/plugin-development.md) (with templates)
-- [Message Hub Architecture](docs/plans/message-hub-architecture.md)
-- [LLM Call Architecture](docs/llm-call-architecture.md)
-- [Migration Guide](docs/infrastructure/MIGRATION.md)
-- [llama.cpp + llama-swap Setup Guide](docs/llamacpp-setup.md)
-- [Tensor Split Benchmark: Speed vs. Full Context](docs/tensor-split-benchmark.md)
+- [Security Architecture](docs/en/architecture/security.md)
+- [Plugin Development Guide](docs/en/guides/plugin-development.md) (with templates)
+- [Message Hub Architecture](docs/de/architecture/message-hub.md)
+- [LLM Call Architecture](docs/en/architecture/llm-call.md)
+- [llama.cpp + llama-swap Setup Guide](docs/en/guides/llamacpp-setup.md)
+- [Deployment Guide](docs/en/guides/deployment.md)
+- [Tensor Split Benchmark: Speed vs. Full Context](docs/en/benchmarks/tensor-split.md)
 
 ---
 

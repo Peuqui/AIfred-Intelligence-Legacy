@@ -42,7 +42,7 @@
 - **History Compression** - Automatische Kompression (siehe unten)
 - **Multi-Backend Support** - llama.cpp (via llama-swap), Ollama, vLLM, TabbyAPI
 - **Thinking Mode** - Chain-of-Thought für Qwen3 Modelle
-- **Message Hub** *(WIP)* - Background-Worker für externe Kanäle (E-Mail, Discord, Telegram, Signal). Architektur: [docs/plans/message-hub-architecture.md](docs/plans/message-hub-architecture.md)
+- **Message Hub** *(WIP)* - Background-Worker für externe Kanäle (E-Mail, Discord, Telegram, Signal). Architektur: [docs/de/architecture/message-hub.md](docs/de/architecture/message-hub.md)
 
 ---
 

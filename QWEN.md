@@ -289,8 +289,8 @@ pytest --cov=aifred tests/
 | `README.de.md` | Hauptdokumentation (Deutsch) |
 | `CHANGELOG.md` | Versionshistorie |
 | `CLAUDE.md` | Projekt-spezifische Regeln |
-| `docs/model-recommended-params.md` | Modell-spezifische Parameter |
-| `docs/llamacpp-setup.md` | llama.cpp Setup-Anleitung |
+| `docs/de/benchmarks/model-params.md` | Modell-spezifische Parameter |
+| `docs/en/guides/llamacpp-setup.md` | llama.cpp Setup-Anleitung |
 
 ---
 
