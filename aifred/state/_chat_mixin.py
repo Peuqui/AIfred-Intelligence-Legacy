@@ -1197,9 +1197,7 @@ class ChatMixin(rx.State, mixin=True):
             if len(self.pending_images) > 0:  # type: ignore[attr-defined]
                 self.clear_pending_images()  # type: ignore[attr-defined]
 
-            # TTS: Generate audio for AI response (standard mode, non-streaming only)
-            async for _ in self._phase_finally_tts(ai_text):
-                yield
+            # TTS: handled by _queue_tts_for_agent (line ~390) — no duplicate here
 
             # Generate session title at end of flow (uses small Automatik model)
             # Only runs on first Q&A pair, skipped if title already exists

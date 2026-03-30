@@ -526,7 +526,6 @@ class TTSStreamingMixin(rx.State, mixin=True):
         if completed_urls:
             if len(completed_urls) > 1:
                 self.add_debug(f"🔗 TTS: Combining {len(completed_urls)} audio chunks...")  # type: ignore[attr-defined]
-                self.add_debug(CONSOLE_SEPARATOR)  # type: ignore[attr-defined]
             from ..lib.audio_processing import save_audio_to_session
             combined_url = save_audio_to_session(completed_urls, self.session_id)  # type: ignore[attr-defined]
             if combined_url:
