@@ -1679,8 +1679,37 @@ async def _physical_context_search(
 
         yield "Searching downward..."
 
-        # 4b. Binary search downward from projected to minimum
-        search_low = CALIBRATION_MIN_CONTEXT
+        # 4b. Narrow binary search downward from projected.
+        # Step down in 10% increments until we find a fitting context,
+        # then binary search within that 10% band. Much faster than
+        # searching the full range from CALIBRATION_MIN_CONTEXT.
+        step_down = max(1024, int(projected * 0.1))
+        search_low = max(CALIBRATION_MIN_CONTEXT, projected - step_down)
+
+        # Quick step-down: find a context that fits
+        step_iteration = 0
+        while search_low >= CALIBRATION_MIN_CONTEXT:
+            step_iteration += 1
+            yield f"[{step_iteration}] Testing {format_number(search_low)}..."
+            step_fits, _, step_gpus, _ = await _test_context_physical(
+                full_cmd, search_low, port,
+                run_thinking_test=run_thinking_test and thinking_result is None,
+                safety_margin=safety_margin,
+            )
+            step_detail = _format_cuda_detail(step_gpus) if step_gpus else "OOM"
+            if step_fits:
+                yield f"✓ {format_number(search_low)} fits ({step_detail})"
+                break
+            yield f"✗ {format_number(search_low)} doesn't fit ({step_detail})"
+            # Step down another 10%
+            search_low = max(CALIBRATION_MIN_CONTEXT, search_low - step_down)
+
+        if not step_fits:
+            yield f"No fitting context found above {format_number(CALIBRATION_MIN_CONTEXT)}"
+            yield 0
+            return
+
+        # Binary search between search_low (fits) and projected (doesn't fit)
         async for item in _binary_search_context(
             full_cmd, port, search_low, projected,
             cuda_gpu_names=cuda_gpu_names,

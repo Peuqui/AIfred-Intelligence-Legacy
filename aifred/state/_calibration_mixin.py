@@ -185,8 +185,8 @@ class CalibrationMixin(rx.State, mixin=True):
 
             self.add_debug(CONSOLE_SEPARATOR)  # type: ignore[attr-defined]
 
-        except (OSError, RuntimeError, ValueError) as e:
-            self.add_debug(f"❌ Calibration failed: {e}")  # type: ignore[attr-defined]
+        except Exception as e:
+            self.add_debug(f"❌ Calibration failed: {type(e).__name__}: {e}")  # type: ignore[attr-defined]
 
         finally:
             self.is_calibrating = False
@@ -529,8 +529,8 @@ class CalibrationMixin(rx.State, mixin=True):
 
             self.add_debug(CONSOLE_SEPARATOR)  # type: ignore[attr-defined]
 
-        except (OSError, RuntimeError, ValueError) as e:
-            self.add_debug(f"❌ Calibration failed: {e}")  # type: ignore[attr-defined]
+        except Exception as e:
+            self.add_debug(f"❌ Calibration failed: {type(e).__name__}: {e}")  # type: ignore[attr-defined]
 
         finally:
             # Always restart llama-swap if we stopped it
