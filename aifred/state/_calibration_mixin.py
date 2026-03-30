@@ -17,8 +17,8 @@ from ..lib.logging_utils import CONSOLE_SEPARATOR
 def _parse_calibration_result(msg: str) -> dict:
     """Parse __RESULT__ protocol message. Single source of truth.
 
-    Format: __RESULT__:{ctx}:{ngl}:{mode}:{thinks|nothink}:{kv}
-    Returns dict with keys: ctx, ngl, mode, thinks, kv
+    Format: __RESULT__:{ctx}:{ngl}:{mode}:{thinks|nothink}:{kv}:{tensor_split}:{num_gpus}
+    Returns dict with keys: ctx, ngl, mode, thinks, kv, tensor_split, num_gpus
     """
     parts = msg.removeprefix("__RESULT__:").split(":")
     return {
@@ -28,6 +28,8 @@ def _parse_calibration_result(msg: str) -> dict:
         "thinks": parts[3] == "thinks" if len(parts) > 3 else False,
         "thinks_tested": len(parts) > 3,
         "kv": parts[4] if len(parts) > 4 else "f16",
+        "tensor_split": parts[5] if len(parts) > 5 else "",
+        "num_gpus": int(parts[6]) if len(parts) > 6 else 0,
     }
 
 
@@ -282,15 +284,26 @@ class CalibrationMixin(rx.State, mixin=True):
                 base_url=self.backend_url  # type: ignore[attr-defined]
             )
 
-            # Step 0: Stop any TTS containers to free VRAM for clean baseline
+            # Step 0: Kill orphaned calibration servers + stop ALL TTS containers
+            # Containers/servers may be left over from a previous interrupted calibration.
             from ..lib.process_utils import stop_xtts_container, stop_moss_container
-            if self.enable_tts:  # type: ignore[attr-defined]
-                self.add_debug("🔊 Stopping TTS containers for clean VRAM baseline...")  # type: ignore[attr-defined]
-                yield
-                stop_xtts_container()
-                stop_moss_container()
-                self.add_debug("   TTS containers stopped")  # type: ignore[attr-defined]
-                yield
+            from ..lib.config import LLAMACPP_CALIBRATION_PORT
+            self.add_debug("🧹 Cleaning up VRAM (TTS containers, orphaned servers)...")  # type: ignore[attr-defined]
+            yield
+            # Kill any llama-server still running on calibration port
+            try:
+                result = subprocess.run(
+                    ["fuser", "-k", f"{LLAMACPP_CALIBRATION_PORT}/tcp"],
+                    capture_output=True, timeout=5,
+                )
+                if result.returncode == 0:
+                    self.add_debug(f"   Killed orphaned server on port {LLAMACPP_CALIBRATION_PORT}")  # type: ignore[attr-defined]
+            except (subprocess.SubprocessError, FileNotFoundError):
+                pass
+            stop_xtts_container()
+            stop_moss_container()
+            self.add_debug("   VRAM cleanup done")  # type: ignore[attr-defined]
+            yield
 
             # Step 1: Stop llama-swap system service to free VRAM
             self.add_debug("🛑 Stopping llama-swap service...")  # type: ignore[attr-defined]
@@ -477,6 +490,8 @@ class CalibrationMixin(rx.State, mixin=True):
 
                     tts_ctx = None
                     tts_kv = calibration_kv
+                    tts_tensor_split = ""
+                    tts_num_gpus = 0
                     async for progress_msg in backend.calibrate_max_context_generator(  # type: ignore[attr-defined]
                         calibration_model_id, dry_run=True, min_kv=calibration_kv,
                     ):
@@ -484,6 +499,8 @@ class CalibrationMixin(rx.State, mixin=True):
                             r = _parse_calibration_result(progress_msg)
                             tts_ctx = r["ctx"]
                             tts_kv = r["kv"]
+                            tts_tensor_split = r["tensor_split"]
+                            tts_num_gpus = r["num_gpus"]
                         elif not progress_msg.startswith("__SPEED__:"):
                             self.add_debug(f"   📊 {progress_msg}")  # type: ignore[attr-defined]
                             yield
@@ -497,6 +514,8 @@ class CalibrationMixin(rx.State, mixin=True):
                         tts_ctx,
                         tts_backend,
                         kv_quant=tts_kv,
+                        tensor_split=tts_tensor_split,
+                        num_gpus=tts_num_gpus,
                     )
                     if added:
                         self.add_debug(  # type: ignore[attr-defined]

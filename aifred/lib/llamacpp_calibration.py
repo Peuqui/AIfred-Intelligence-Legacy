@@ -1791,12 +1791,14 @@ def add_llamaswap_tts_variant(
     tts_context: int,
     tts_backend: str,
     kv_quant: str = "f16",
+    tensor_split: str = "",
+    num_gpus: int = 0,
 ) -> bool:
     """
     Add (or update) a TTS variant YAML entry in the llama-swap config.
 
-    Copies the existing model_id dict entry, modifies cmd context and KV quantization,
-    and writes it as model_id-tts-{backend}.
+    Copies the existing model_id dict entry, modifies cmd context, KV quantization,
+    and optionally tensor-split/CUDA_VISIBLE_DEVICES from TTS calibration.
 
     Args:
         config_path: Path to llama-swap config.yaml
@@ -1804,6 +1806,8 @@ def add_llamaswap_tts_variant(
         tts_context: Calibrated context with TTS VRAM reservation
         tts_backend: TTS backend name ("xtts" or "moss")
         kv_quant: KV cache quantization level ("f16", "q8_0", "q4_0")
+        tensor_split: Calibrated tensor-split for TTS variant (e.g. "18,9,9")
+        num_gpus: Number of GPUs for TTS variant (for CUDA_VISIBLE_DEVICES)
     """
     if not config_path.exists():
         logger.error(f"llama-swap config not found: {config_path}")
@@ -1820,7 +1824,17 @@ def add_llamaswap_tts_variant(
     cmd = tts_entry.get("cmd", "")
     cmd = re.sub(r'-c\s+\d+', f'-c {tts_context}', cmd)
     cmd = _inject_kv_quant(cmd, kv_quant)
+
+    # Apply TTS-specific tensor-split if calibration found a different one
+    if tensor_split:
+        cmd = re.sub(r'(--tensor-split|-ts)\s+[\d.,]+', f'-ts {tensor_split}', cmd)
+
     tts_entry["cmd"] = cmd
+
+    # Apply TTS-specific CUDA_VISIBLE_DEVICES if GPU count differs
+    if num_gpus > 0:
+        cuda_vis = ",".join(str(i) for i in range(num_gpus))
+        tts_entry["env"] = [f"CUDA_VISIBLE_DEVICES={cuda_vis}"]
 
     # Insert/update in models dict
     models = config["models"]
@@ -2010,12 +2024,17 @@ async def _optimize_gpu_layers(
     mb_per_layer: float,
     phase_label: str,
     safety_margin: int = LLAMACPP_VRAM_SAFETY_MARGIN,
+    gpu0_total_mb: int = 0,
 ) -> AsyncIterator[str | list[float]]:
     """Binary search for max layers on fastest GPU at fixed context.
 
     Extracts the Phase-A logic: project free VRAM via fit-params, then
     binary search for the maximum number of layers on CUDA0 that still
     fit at ``target_context``.
+
+    Args:
+        gpu0_total_mb: Total VRAM of GPU0 in MiB. Used to cap the search
+                       so we don't assign more layers than physically fit.
 
     Yields progress strings.  Final yield is the optimized padded ratios
     as ``list[float]`` (length == total_gpus).
@@ -2050,8 +2069,14 @@ async def _optimize_gpu_layers(
     )
     yield f"Projected at ctx={format_number(target_context)}: {free_info}"
 
+    # Cap: GPU0 can't hold more layers than its physical VRAM allows
+    if gpu0_total_mb > 0 and mb_per_layer > 0:
+        max_physical_gpu0 = int(gpu0_total_mb / mb_per_layer)
+    else:
+        max_physical_gpu0 = total_layers
+
     extra_layers_possible = int(free_fastest / mb_per_layer)
-    estimated_max = min(initial_layers[0] + extra_layers_possible, total_layers)
+    estimated_max = min(initial_layers[0] + extra_layers_possible, total_layers, max_physical_gpu0)
 
     if estimated_max <= initial_layers[0]:
         yield f"No headroom for layer optimization on {fastest_name}"
@@ -2080,7 +2105,7 @@ async def _optimize_gpu_layers(
 
     if est_fits:
         low = estimated_max + 1
-        high = total_layers
+        high = min(total_layers, max_physical_gpu0)
         best_cuda0 = estimated_max
     else:
         low = initial_layers[0] + 1
@@ -2182,7 +2207,48 @@ async def _calibrate_speed_split(
         f"fits on {min_gpus}/{total_gpus} GPUs ({gpu_names_info})"
     )
 
-    # ── Step 2: Build tensor-split for min_gpus (inactive GPUs get 0) ──
+    # ── Step 2: Try GPU counts from min_gpus upward ──
+    # If min_gpus fails (e.g. TTS eating VRAM), try more GPUs.
+    for try_gpus in range(min_gpus, total_gpus):
+        found = False
+        async for item in _try_speed_split_for_gpu_count(
+            try_gpus, total_gpus, total_layers, per_gpu_total_mb, mb_per_layer,
+            full_cmd, gguf_path, native_context, target_context, port,
+            base_kv, safety_margin,
+        ):
+            if isinstance(item, str):
+                if item.startswith("__SPEED__:") and not item.startswith("__SPEED__:0"):
+                    yield item
+                    return
+                elif item.startswith("__SPEED__:0"):
+                    # This GPU count failed — try next
+                    found = False
+                else:
+                    yield item
+        if not found and try_gpus + 1 < total_gpus:
+            yield f"Speed: {try_gpus} GPUs insufficient — trying {try_gpus + 1} GPUs"
+
+    yield f"Speed split: no working GPU count found ({min_gpus}..{total_gpus - 1})"
+    yield "__SPEED__:0"
+
+
+async def _try_speed_split_for_gpu_count(
+    try_gpus: int,
+    total_gpus: int,
+    total_layers: int,
+    per_gpu_total_mb: list[int],
+    mb_per_layer: float,
+    full_cmd: str,
+    gguf_path: Path,
+    native_context: int,
+    target_context: int,
+    port: int,
+    base_kv: str,
+    safety_margin: int,
+) -> AsyncIterator[str]:
+    """Try speed calibration with a specific GPU count. Yields progress + __SPEED__ result."""
+    min_gpus = try_gpus
+
     # VRAM-proportional ratios for active GPUs only
     active_vram = per_gpu_total_mb[:min_gpus]
     min_vram = min(active_vram)
@@ -2217,6 +2283,7 @@ async def _calibrate_speed_split(
         mb_per_layer=mb_per_layer,
         phase_label="A",
         safety_margin=safety_margin,
+        gpu0_total_mb=per_gpu_total_mb[0] if per_gpu_total_mb else 0,
     ):
         if isinstance(opt_result, list):
             padded_ratios = opt_result
@@ -2269,94 +2336,50 @@ async def _calibrate_speed_split(
 
         kv_best = 0
 
-        if projected_ctx <= target_context:
-            # Can't go beyond minimum — just verify target_context works
-            fits, _, gpu_list, _ = await _test_context_physical(
-                kv_cmd, target_context, port,
-                safety_margin=safety_margin,
-            )
-            yield _fmt_test("B1", target_context, fits=fits, gpu_list=gpu_list, split=best_split)
-            if fits:
-                kv_best = target_context
+        # First test at projected context (or target_context if projection is lower)
+        start_ctx = max(projected_ctx, target_context)
+        start_ctx = min(start_ctx, native_context)
+
+        iteration = 1
+        fits, _, gpu_list, _ = await _test_context_physical(
+            kv_cmd, start_ctx, port,
+            safety_margin=safety_margin,
+        )
+        yield _fmt_test(f"B{iteration}", start_ctx, fits=fits, gpu_list=gpu_list, split=best_split)
+
+        if fits:
+            kv_best = start_ctx
+            # Binary search upward: start_ctx → native_context
+            if start_ctx < native_context:
+                async for item in _binary_search_context(
+                    kv_cmd, port, start_ctx, native_context,
+                    safety_margin=safety_margin,
+                    start_iteration=iteration,
+                ):
+                    if isinstance(item, int):
+                        if item > kv_best:
+                            kv_best = item
+                    elif isinstance(item, dict):
+                        if item.get("iteration") is not None:
+                            iteration = item["iteration"]
+                    else:
+                        yield item
         else:
-            # 90%-first approach: start conservative, then binary search up
-            start_ctx = int(projected_ctx * 0.9)
-            start_ctx = max(start_ctx, target_context)
-
-            iteration = 1
-            fits, _, gpu_list, _ = await _test_context_physical(
-                kv_cmd, start_ctx, port,
-                safety_margin=safety_margin,
-            )
-            yield _fmt_test(f"B{iteration}", start_ctx, fits=fits, gpu_list=gpu_list, split=best_split)
-
-            if fits:
-                kv_best = start_ctx
-                # Binary search between start_ctx and native_context
-                last_pass = start_ctx
-                first_fail = native_context
-
-                # Walk upward in 10% steps to find the fail point
-                step = max(projected_ctx // 10, 4096)
-                probe = start_ctx + step
-                while probe < native_context:
-                    iteration += 1
-                    probe_fits, _, probe_gpus, _ = await _test_context_physical(
-                        kv_cmd, probe, port,
-                        safety_margin=safety_margin,
-                    )
-                    yield _fmt_test(f"B{iteration}", probe, fits=probe_fits, gpu_list=probe_gpus, split=best_split)
-                    if probe_fits:
-                        last_pass = probe
-                        kv_best = probe
-                        probe += step
+            # Projection was too optimistic — binary search downward
+            if start_ctx > target_context:
+                async for item in _binary_search_context(
+                    kv_cmd, port, target_context, start_ctx,
+                    safety_margin=safety_margin,
+                    start_iteration=iteration,
+                ):
+                    if isinstance(item, int):
+                        if item > kv_best:
+                            kv_best = item
+                    elif isinstance(item, dict):
+                        if item.get("iteration") is not None:
+                            iteration = item["iteration"]
                     else:
-                        first_fail = probe
-                        break
-
-                # Binary fine-tuning
-                if first_fail - last_pass > LLAMACPP_CALIBRATION_PRECISION:
-                    async for item in _binary_search_context(
-                        kv_cmd, port, last_pass, first_fail,
-                        safety_margin=safety_margin,
-                    ):
-                        if isinstance(item, int):
-                            if item > kv_best:
-                                kv_best = item
-                        elif isinstance(item, str):
-                            yield item
-            else:
-                # Walk downward in 10% steps until pass or target reached
-                step = max(projected_ctx // 10, 4096)
-                first_pass = 0
-                probe = start_ctx - step
-                while probe > target_context:
-                    iteration += 1
-                    probe_fits, _, probe_gpus, _ = await _test_context_physical(
-                        kv_cmd, probe, port,
-                        safety_margin=safety_margin,
-                    )
-                    yield _fmt_test(f"B{iteration}", probe, fits=probe_fits, gpu_list=probe_gpus, split=best_split)
-                    if probe_fits:
-                        first_pass = probe
-                        kv_best = probe
-                        break
-                    else:
-                        probe -= step
-
-                # Binary fine-tuning
-                if first_pass > 0:
-                    last_fail = min(probe + step, start_ctx)
-                    if last_fail - first_pass > LLAMACPP_CALIBRATION_PRECISION:
-                        async for item in _binary_search_context(
-                            kv_cmd, port, first_pass, last_fail,
-                            safety_margin=safety_margin,
-                        ):
-                            if isinstance(item, int):
-                                if item > kv_best:
-                                    kv_best = item
-                            elif isinstance(item, str):
-                                yield item
+                        yield item
 
         if kv_best > best_context:
             best_context = kv_best
@@ -2670,7 +2693,13 @@ async def calibrate_llamacpp_model(
             model_size_gb=model_size_gb, ngl=ngl, mode=mode,
             vram_per_gpu=vram_per_gpu, ram_cpu_mb=ram_cpu_mb,
         )
-        yield f"__RESULT__:{ctx}:{ngl}:{mode}:{'thinks' if thinks else 'nothink'}:{best_kv}"
+        # Encode tensor-split and GPU count for TTS variant config
+        ts_str = ""
+        num_gpus = 0
+        if optimized_ratios:
+            ts_str = ",".join(f"{r:g}" for r in optimized_ratios if r > 0)
+            num_gpus = sum(1 for r in optimized_ratios if r > 0)
+        yield f"__RESULT__:{ctx}:{ngl}:{mode}:{'thinks' if thinks else 'nothink'}:{best_kv}:{ts_str}:{num_gpus}"
 
     # === Skip GPU-only for oversized models ===
     # Model weights alone exceed total VRAM → GPU-only is impossible,
@@ -2921,6 +2950,7 @@ async def calibrate_llamacpp_model(
                                 mb_per_layer=mb_per_layer_1b,
                                 phase_label="1b",
                                 safety_margin=safety_margin,
+                                gpu0_total_mb=per_gpu_total_mb_sorted[0],
                             ):
                                 if isinstance(opt_result, list):
                                     optimized_ratios = opt_result

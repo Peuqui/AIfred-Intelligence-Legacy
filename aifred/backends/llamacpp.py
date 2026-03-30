@@ -369,15 +369,28 @@ class LlamaCppBackend(OpenAICompatibleBackend):
             yield "__RESULT__:0:0:error"
             return
 
-        # Set model-specific env (e.g. CUDA_VISIBLE_DEVICES) for calibration
+        # Calibration starts from scratch — strip CUDA_VISIBLE_DEVICES
+        # (calibration determines GPU assignment itself, must see all GPUs)
         import aifred.lib.llamacpp_calibration as _cal_mod
-        _cal_mod._calibration_env = model_info.get("env") or None
+        env: dict[str, str] | None = model_info.get("env") or None
+        if env:
+            env = {k: v for k, v in env.items() if k != "CUDA_VISIBLE_DEVICES"}
+            env = env or None
+        _cal_mod._calibration_env = env
+
+        # Strip tensor-split and split-mode from cmd — calibration determines
+        # GPU distribution itself. Without -ts, llama.cpp auto-distributes
+        # based on available VRAM per GPU (best default for heterogeneous setups).
+        import re
+        cal_cmd = model_info["full_cmd"]
+        cal_cmd = re.sub(r'\s+(-ts|--tensor-split)\s+[\d.,]+', '', cal_cmd)
+        cal_cmd = re.sub(r'\s+(-sm|--split-mode)\s+\w+', '', cal_cmd)
 
         try:
             async for msg in calibrate_llamacpp_model(
                 model_id=model,
                 gguf_path=gguf_path,
-                full_cmd=model_info["full_cmd"],
+                full_cmd=cal_cmd,
                 config_path=None if dry_run else LLAMASWAP_CONFIG_PATH,
                 min_kv=min_kv,
             ):
