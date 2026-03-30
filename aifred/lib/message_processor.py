@@ -274,7 +274,8 @@ async def _call_engine(
     _agent_cfg = get_agent_config(agent)
     agent_display = _agent_cfg.display_name if _agent_cfg else agent.capitalize()
 
-    debug(f"🎩 {agent_display}-LLM: {model} ({backend_type})")
+    from .agent_config import get_agent_emoji
+    debug(f"{get_agent_emoji(agent)} {agent_display}-LLM: {model} ({backend_type})")
     debug(f"📜 History: {len(llm_history)} messages")
 
     # Prepare full toolkit (memory + all plugin tools)

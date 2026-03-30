@@ -207,7 +207,8 @@ async def handle_cache_hit(
     _cal = get_llamacpp_calibration_info(model_choice)
     if _cal and _cal["mode"] == "hybrid":
         arch_label += f", hybrid ngl={_cal['ngl']}"
-    yield {"type": "debug", "message": f"🎩 AIfred-LLM starting: {model_choice} ({arch_label}, cache data)"}
+    from ..agent_config import get_agent_label, get_agent_emoji
+    yield {"type": "debug", "message": f"{get_agent_label('aifred')}-LLM starting: {model_choice} ({arch_label}, cache data)"}
 
     # Show LLM generation phase
     yield {"type": "progress", "phase": "llm"}
@@ -288,7 +289,7 @@ async def handle_cache_hit(
         "content": f"{final_answer_formatted}\n\n{metadata_display}",
         "agent": "aifred",
         "agent_display_name": "AIfred",
-        "agent_emoji": "\U0001f3a9",
+        "agent_emoji": get_agent_emoji("aifred"),
         "mode": "session_cache",
         "round_num": 0,
         "metadata": metadata_dict,

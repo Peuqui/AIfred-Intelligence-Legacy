@@ -52,6 +52,30 @@ def t(key: str) -> rx.Var:
 
 
 # ============================================================
+# AGENT EMOJI HELPER
+# ============================================================
+
+# Custom image replaces the Unicode 🎩 for AIfred with the designed top hat
+_CUSTOM_EMOJI_MAP: dict[str, str] = {
+    "\U0001f3a9": "/AIfred-Zylinder.svg",
+}
+
+
+def agent_emoji(emoji: str, size: str = "1.2em") -> rx.Component:
+    """Render an agent emoji — custom image for AIfred's top hat, text for others."""
+    if emoji in _CUSTOM_EMOJI_MAP:
+        return rx.image(
+            src=_CUSTOM_EMOJI_MAP[emoji],
+            width=size,
+            height=size,
+            display="inline-block",
+            vertical_align="middle",
+            flex_shrink="0",
+        )
+    return rx.text(emoji, font_size=size, line_height="1", flex_shrink="0")
+
+
+# ============================================================
 # MOBILE NATIVE SELECT HELPERS
 # ============================================================
 

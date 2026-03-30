@@ -1080,7 +1080,8 @@ class ChatMixin(rx.State, mixin=True):
             if responding_agent == "aifred":
                 if addressed_to == "aifred":
                     # User explicitly addressed AIfred → skip Sokrates
-                    self.add_debug("🎩 Direct addressing: AIfred")
+                    from ..lib.agent_config import get_agent_label
+                    self.add_debug(f"{get_agent_label('aifred')} Direct addressing")
                     skip_sokrates_analysis = True
             else:
                 from ..lib.agent_config import get_agent_config

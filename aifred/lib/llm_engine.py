@@ -205,7 +205,8 @@ async def call_llm(
             _cal = get_llamacpp_calibration_info(model_choice)
             if _cal and _cal["mode"] == "hybrid":
                 arch_label += f", hybrid ngl={_cal['ngl']}"
-        yield {"type": "debug", "message": f"🎩 {agent_label}-LLM starting: {model_choice} ({arch_label})"}
+        from .agent_config import get_agent_emoji
+        yield {"type": "debug", "message": f"{get_agent_emoji(agent)} {agent_label}-LLM starting: {model_choice} ({arch_label})"}
 
         # Stream response via unified pipeline (handles TTFT, tool tracking, metadata)
         from .llm_pipeline import run_llm_stream, PipelineResult
@@ -269,7 +270,7 @@ async def call_llm(
             "content": ai_with_source,
             "agent": "aifred",
             "agent_display_name": "AIfred",
-            "agent_emoji": "\U0001f3a9",
+            "agent_emoji": get_agent_emoji(agent),
             "mode": "own_knowledge",
             "round_num": 0,
             "metadata": metadata_dict,

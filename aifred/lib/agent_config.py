@@ -194,6 +194,24 @@ def get_agent_ids() -> list[str]:
     return list(agents.keys())
 
 
+def get_agent_emoji(agent_id: str) -> str:
+    """Get the emoji for an agent, or a generic fallback."""
+    agents = load_agents_raw()
+    agent = agents.get(agent_id)
+    if agent:
+        return agent.get("emoji", "\U0001f916")
+    return "\U0001f916"
+
+
+def get_agent_label(agent_id: str) -> str:
+    """Get 'emoji display_name' for an agent (for debug messages etc.)."""
+    agents = load_agents_raw()
+    agent = agents.get(agent_id)
+    if agent:
+        return f"{agent.get('emoji', '\U0001f916')} {agent.get('display_name', agent_id.capitalize())}"
+    return agent_id.capitalize()
+
+
 def get_agent_config(agent_id: str) -> Optional[AgentConfig]:
     """Get config for a specific agent, or None if not found."""
     agents = load_agents()

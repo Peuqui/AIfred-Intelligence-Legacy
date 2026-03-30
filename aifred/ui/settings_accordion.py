@@ -10,6 +10,7 @@ import reflex as rx
 
 from ..state import AIState
 from ..theme import COLORS
+from .helpers import agent_emoji
 from .helpers import (
     t,
     native_select_backend,
@@ -64,8 +65,11 @@ def _temp_input(agent: str, width: str = "50px") -> rx.Component:
 def _sampling_agent_row(agent: str, emoji: str, label: str, reset_handler) -> rx.Component:
     """Helper: One agent row with temp + 4 sampling inputs + reset button."""
     return rx.hstack(
-        rx.text(f"{emoji} {label}", font_size="10px", font_weight="bold", width="75px",
-                color=COLORS["text_primary"]),
+        rx.hstack(
+            agent_emoji(emoji, size="14px"),
+            rx.text(label, font_size="10px", font_weight="bold", color=COLORS["text_primary"]),
+            spacing="1", align="center", width="75px",
+        ),
         _temp_input(agent),
         _sampling_input(agent, "top_k"),
         _sampling_input(agent, "top_p"),
@@ -104,8 +108,9 @@ def _ctx_column(
     """Helper: One agent context column with toggle + input."""
     return rx.vstack(
         rx.hstack(
+            agent_emoji(emoji, size="13px"),
             rx.text(
-                f"{emoji} {label}",
+                label,
                 font_size="11px",
                 font_weight="bold",
                 color=COLORS["text_secondary"],
@@ -146,7 +151,7 @@ def _agent_toggle(
     """Single agent toggle with tooltip (Personality/Reasoning/Thinking)."""
     return rx.tooltip(
         rx.hstack(
-            rx.text(emoji, font_size="14px"),
+            agent_emoji(emoji, size="14px"),
             rx.checkbox(
                 checked=checked_var,
                 on_change=on_change_handler,

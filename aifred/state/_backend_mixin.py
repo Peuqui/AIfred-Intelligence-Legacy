@@ -1003,21 +1003,22 @@ class BackendMixin(rx.State, mixin=True):
                             return model_display[:-1] + ", ctx not calibrated)"
                         return f"{model_display} (ctx not calibrated)"
 
+                from ..lib.agent_config import get_agent_label
                 if self.backend_type.lower() in ["vllm", "tabbyapi"]:
                     self.add_debug(f"✅ {len(self.available_models)} models available")  # type: ignore[attr-defined, has-type]
-                    self.add_debug(f"   AIfred: {format_model_with_ctx(self.aifred_model, self.aifred_model_id)}")  # type: ignore[attr-defined, has-type]
+                    self.add_debug(f"   {get_agent_label('aifred')}: {format_model_with_ctx(self.aifred_model, self.aifred_model_id)}")  # type: ignore[attr-defined, has-type]
                 else:
                     self.add_debug(f"✅ {len(self.available_models)} models available")  # type: ignore[attr-defined, has-type]
-                    self.add_debug(f"   AIfred: {format_model_with_ctx(self.aifred_model, self.aifred_model_id)}")  # type: ignore[attr-defined, has-type]
+                    self.add_debug(f"   {get_agent_label('aifred')}: {format_model_with_ctx(self.aifred_model, self.aifred_model_id)}")  # type: ignore[attr-defined, has-type]
                     if self.automatik_model_id:
-                        self.add_debug(f"   Automatic: {format_model_with_ctx(self.automatik_model, self.automatik_model_id)}")  # type: ignore[attr-defined, has-type]
+                        self.add_debug(f"   \u2728 Automatic: {format_model_with_ctx(self.automatik_model, self.automatik_model_id)}")  # type: ignore[attr-defined, has-type]
                     else:
-                        self.add_debug("   Automatic: (= AIfred)")  # type: ignore[attr-defined, has-type]
+                        self.add_debug("   \u2728 Automatic: (= AIfred)")  # type: ignore[attr-defined, has-type]
                     if self.multi_agent_mode != "standard":  # type: ignore[attr-defined, has-type]
                         if self.sokrates_model_id:  # type: ignore[attr-defined, has-type]
-                            self.add_debug(f"   Sokrates: {format_model_with_ctx(self.sokrates_model, self.sokrates_model_id)}")  # type: ignore[attr-defined, has-type]
+                            self.add_debug(f"   {get_agent_label('sokrates')}: {format_model_with_ctx(self.sokrates_model, self.sokrates_model_id)}")  # type: ignore[attr-defined, has-type]
                         if self.salomo_model_id:  # type: ignore[attr-defined, has-type]
-                            self.add_debug(f"   Salomo: {format_model_with_ctx(self.salomo_model, self.salomo_model_id)}")  # type: ignore[attr-defined, has-type]
+                            self.add_debug(f"   {get_agent_label('salomo')}: {format_model_with_ctx(self.salomo_model, self.salomo_model_id)}")  # type: ignore[attr-defined, has-type]
 
                 # Cache min context limit for session-load display
                 context_limits = []
@@ -1135,7 +1136,8 @@ class BackendMixin(rx.State, mixin=True):
                 self._save_settings()  # type: ignore[attr-defined, has-type]
 
         if self.vision_model_id:
-            self.add_debug(f"   Vision: {self.vision_model}")  # type: ignore[attr-defined, has-type]
+            from ..lib.agent_config import get_agent_label as _get_label
+            self.add_debug(f"   {_get_label('vision')}: {self.vision_model}")  # type: ignore[attr-defined, has-type]
 
         _global_backend_state["vision_model"] = self.vision_model
         _global_backend_state["vision_model_id"] = self.vision_model_id

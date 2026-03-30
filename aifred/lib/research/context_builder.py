@@ -280,7 +280,8 @@ async def build_and_generate_response(
     _cal = get_llamacpp_calibration_info(model_choice)
     if _cal and _cal["mode"] == "hybrid":
         arch_label += f", hybrid ngl={_cal['ngl']}"
-    yield {"type": "debug", "message": f"🎩 AIfred-LLM starting: {model_choice} ({arch_label})"}
+    from ..agent_config import get_agent_label, get_agent_emoji
+    yield {"type": "debug", "message": f"{get_agent_label('aifred')}-LLM starting: {model_choice} ({arch_label})"}
     yield {"type": "progress", "phase": "llm"}
 
     # Build LLM options (include enable_thinking from user settings)
@@ -435,7 +436,7 @@ async def build_and_generate_response(
         "content": f"{history_content}\n\n{metadata_display}",
         "agent": "aifred",
         "agent_display_name": "AIfred",
-        "agent_emoji": "\U0001f3a9",
+        "agent_emoji": get_agent_emoji("aifred"),
         "mode": "web_research",
         "round_num": 0,
         "metadata": metadata_dict,

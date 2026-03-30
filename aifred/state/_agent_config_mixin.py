@@ -360,10 +360,11 @@ class AgentConfigMixin(rx.State, mixin=True):
         setattr(self, f"{agent}_min_p", defaults["min_p"])
         setattr(self, f"{agent}_repeat_penalty", defaults["repeat_penalty"])
 
-        # Debug log
+        # Debug log — use get_agent_label for emoji + display_name from config
+        from ..lib.agent_config import get_agent_label
         temp_info = f"temp={defaults['temperature']}, " if include_temperature else ""
         self.add_debug(  # type: ignore[attr-defined]
-            f"\U0001f3b2 {agent.capitalize()} sampling reset: "
+            f"{get_agent_label(agent)} sampling reset: "
             f"{temp_info}top_k={int(defaults['top_k'])}, "
             f"top_p={defaults['top_p']}, min_p={defaults['min_p']}, "
             f"rep={defaults['repeat_penalty']}"
@@ -465,12 +466,13 @@ class AgentConfigMixin(rx.State, mixin=True):
                     return f"{model_display} (ctx not calibrated)"
 
             # Re-display all agent models with updated context limits
-            self.add_debug(f"   AIfred: {format_model_with_ctx(self.aifred_model, self.aifred_model_id)}")  # type: ignore[attr-defined]
+            from ..lib.agent_config import get_agent_label
+            self.add_debug(f"   {get_agent_label('aifred')}: {format_model_with_ctx(self.aifred_model, self.aifred_model_id)}")  # type: ignore[attr-defined]
             if self.multi_agent_mode != "standard":
                 if self.sokrates_model_id:
-                    self.add_debug(f"   Sokrates: {format_model_with_ctx(self.sokrates_model, self.sokrates_model_id)}")  # type: ignore[attr-defined]
+                    self.add_debug(f"   {get_agent_label('sokrates')}: {format_model_with_ctx(self.sokrates_model, self.sokrates_model_id)}")  # type: ignore[attr-defined]
                 if self.salomo_model_id:
-                    self.add_debug(f"   Salomo: {format_model_with_ctx(self.salomo_model, self.salomo_model_id)}")  # type: ignore[attr-defined]
+                    self.add_debug(f"   {get_agent_label('salomo')}: {format_model_with_ctx(self.salomo_model, self.salomo_model_id)}")  # type: ignore[attr-defined]
 
             # Update cached min context limit
             context_limits: list[int] = []

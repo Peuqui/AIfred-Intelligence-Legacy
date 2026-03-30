@@ -160,7 +160,8 @@ class UIConfigMixin(rx.State, mixin=True):
         """Toggle manual context for AIfred."""
         self.num_ctx_manual_aifred_enabled = enabled
         status = "Manual" if enabled else "Auto"
-        self.add_debug(f"\U0001f3a9 AIfred Context: {status}")  # type: ignore[attr-defined]
+        from ..lib.agent_config import get_agent_label
+        self.add_debug(f"{get_agent_label('aifred')} Context: {status}")  # type: ignore[attr-defined]
 
     def toggle_num_ctx_manual_sokrates(self, enabled: bool) -> None:
         """Toggle manual context for Sokrates."""
@@ -233,7 +234,8 @@ class UIConfigMixin(rx.State, mixin=True):
             rope_factor = get_rope_factor_for_model(self.aifred_model_id)  # type: ignore[attr-defined]
             aifred_ctx = get_ollama_calibration(self.aifred_model_id, rope_factor) or 0  # type: ignore[attr-defined]
             mode = "auto"
-        self.add_debug(f"   AIfred: {format_model_with_ctx(self.aifred_model, aifred_ctx, mode)}")  # type: ignore[attr-defined]
+        from ..lib.agent_config import get_agent_label
+        self.add_debug(f"   {get_agent_label('aifred')}: {format_model_with_ctx(self.aifred_model, aifred_ctx, mode)}")  # type: ignore[attr-defined]
         if aifred_ctx > 0:
             effective_limits.append(aifred_ctx)
 
@@ -246,7 +248,7 @@ class UIConfigMixin(rx.State, mixin=True):
                 rope_factor = get_rope_factor_for_model(self.sokrates_model_id)  # type: ignore[attr-defined]
                 sokrates_ctx = get_ollama_calibration(self.sokrates_model_id, rope_factor) or 0  # type: ignore[attr-defined]
                 mode = "auto"
-            self.add_debug(f"   Sokrates: {format_model_with_ctx(self.sokrates_model, sokrates_ctx, mode)}")  # type: ignore[attr-defined]
+            self.add_debug(f"   {get_agent_label('sokrates')}: {format_model_with_ctx(self.sokrates_model, sokrates_ctx, mode)}")  # type: ignore[attr-defined]
             if sokrates_ctx > 0:
                 effective_limits.append(sokrates_ctx)
 
@@ -259,7 +261,7 @@ class UIConfigMixin(rx.State, mixin=True):
                 rope_factor = get_rope_factor_for_model(self.salomo_model_id)  # type: ignore[attr-defined]
                 salomo_ctx = get_ollama_calibration(self.salomo_model_id, rope_factor) or 0  # type: ignore[attr-defined]
                 mode = "auto"
-            self.add_debug(f"   Salomo: {format_model_with_ctx(self.salomo_model, salomo_ctx, mode)}")  # type: ignore[attr-defined]
+            self.add_debug(f"   {get_agent_label('salomo')}: {format_model_with_ctx(self.salomo_model, salomo_ctx, mode)}")  # type: ignore[attr-defined]
             if salomo_ctx > 0:
                 effective_limits.append(salomo_ctx)
 
@@ -272,7 +274,7 @@ class UIConfigMixin(rx.State, mixin=True):
                 rope_factor = get_rope_factor_for_model(self.vision_model_id)  # type: ignore[attr-defined]
                 vision_ctx = get_ollama_calibration(self.vision_model_id, rope_factor) or 0  # type: ignore[attr-defined]
                 mode = "auto"
-            self.add_debug(f"   Vision: {format_model_with_ctx(self.vision_model, vision_ctx, mode)}")  # type: ignore[attr-defined]
+            self.add_debug(f"   {get_agent_label('vision')}: {format_model_with_ctx(self.vision_model, vision_ctx, mode)}")  # type: ignore[attr-defined]
             # Vision context is NOT added to effective_limits - separate from chat context
 
         # Calculate effective limit (minimum of all active limits)

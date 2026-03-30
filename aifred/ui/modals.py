@@ -5,7 +5,7 @@ from __future__ import annotations
 import reflex as rx
 
 from ..state import AIState
-from .helpers import t
+from .helpers import t, agent_emoji
 
 
 def multi_agent_help_modal() -> rx.Component:
@@ -99,7 +99,7 @@ def multi_agent_help_modal() -> rx.Component:
                 rx.text(t("multi_agent_help_agents_title"), color="#FFD700", font_weight="bold", font_size="14px"),
                 rx.vstack(
                     rx.hstack(
-                        rx.text("🎩 AIfred:", color="white", font_weight="bold", min_width="120px"),
+                        rx.hstack(agent_emoji("\U0001f3a9", size="18px"), rx.text("AIfred:", font_weight="bold"), spacing="1", align="center", color="white", min_width="120px"),
                         rx.text(t("multi_agent_help_aifred_desc"), color="#ccc"),
                         spacing="2",
                         align="start",
@@ -406,7 +406,7 @@ def login_dialog() -> rx.Component:
             rx.vstack(
                 # Logo/Header
                 rx.vstack(
-                    rx.text("🎩", font_size="48px"),
+                    agent_emoji("\U0001f3a9", size="48px"),
                     rx.text("AIfred Intelligence", color="white", font_weight="bold", font_size="24px"),
                     spacing="1",
                     align="center",
