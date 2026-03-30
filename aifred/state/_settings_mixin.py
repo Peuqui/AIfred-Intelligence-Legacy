@@ -6,7 +6,6 @@ and reset-to-defaults.
 
 from __future__ import annotations
 
-import copy
 import os
 from typing import Any, Dict
 
@@ -148,8 +147,7 @@ class SettingsMixin(rx.State, mixin=True):
             # Note: tts_speed removed - generation always at 1.0, tempo via tts_playback_rate
             "tts_engine": self.tts_engine,  # type: ignore[attr-defined, has-type]
             "xtts_force_cpu": self.xtts_force_cpu,  # type: ignore[attr-defined, has-type]
-            "tts_autoplay": self.tts_autoplay,  # type: ignore[attr-defined, has-type]
-            "tts_streaming_enabled": self.tts_streaming_enabled,  # type: ignore[attr-defined, has-type]
+            # tts_autoplay/tts_streaming_enabled: per-engine only (tts_toggles_per_engine)
             "tts_playback_rate": self.tts_playback_rate,  # type: ignore[attr-defined, has-type]
             "tts_pitch": self.tts_pitch,  # type: ignore[attr-defined, has-type]
             "whisper_model": self.whisper_model_key,  # type: ignore[attr-defined, has-type]
@@ -175,18 +173,10 @@ class SettingsMixin(rx.State, mixin=True):
             settings["tts_voices_per_language"][engine_key] = {}
         settings["tts_voices_per_language"][engine_key][lang] = self.tts_voice  # type: ignore[attr-defined, has-type]
 
-        # Update tts_agent_voices_per_engine with current agent voice settings
-        if "tts_agent_voices_per_engine" not in settings:
-            settings["tts_agent_voices_per_engine"] = {}
-        settings["tts_agent_voices_per_engine"][engine_key] = copy.deepcopy(self.tts_agent_voices)  # type: ignore[attr-defined, has-type]
-
-        # Update tts_toggles_per_engine with current TTS toggles
-        if "tts_toggles_per_engine" not in settings:
-            settings["tts_toggles_per_engine"] = {}
-        settings["tts_toggles_per_engine"][engine_key] = {
-            "autoplay": self.tts_autoplay,  # type: ignore[attr-defined, has-type]
-            "streaming": self.tts_streaming_enabled,  # type: ignore[attr-defined, has-type]
-        }
+        # Per-engine data (tts_agent_voices_per_engine, tts_toggles_per_engine)
+        # is NOT written here — it's managed by dedicated save functions
+        # (_save_agent_voices_for_engine, _save_tts_toggles_for_engine)
+        # that are called when the user actually changes those settings.
         save_settings(settings)
 
         # Update mtime tracker to prevent immediate reload by check_for_updates()
@@ -320,13 +310,12 @@ class SettingsMixin(rx.State, mixin=True):
                     break
         self.tts_engine = saved_engine  # type: ignore[attr-defined, has-type]
         self.xtts_force_cpu = settings.get("xtts_force_cpu", self.xtts_force_cpu)  # type: ignore[attr-defined, has-type]
-        self.tts_autoplay = settings.get("tts_autoplay", self.tts_autoplay)  # type: ignore[attr-defined, has-type]
-        self.tts_streaming_enabled = settings.get("tts_streaming_enabled", self.tts_streaming_enabled)  # type: ignore[attr-defined, has-type]
 
         # Ensure all registered agents have TTS voice entries
         self.ensure_all_agents_have_tts()  # type: ignore[attr-defined]
-        # Restore per-engine agent voices (if saved)
+        # Restore per-engine agent voices + toggles (single source of truth)
         self._restore_agent_voices_for_engine(self.tts_engine)  # type: ignore[attr-defined, has-type]
+        self._restore_tts_toggles_for_engine(self.tts_engine)  # type: ignore[attr-defined, has-type]
 
         # UI language
         new_ui_lang = settings.get("ui_language", self.ui_language)

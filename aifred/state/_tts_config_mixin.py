@@ -261,10 +261,16 @@ class TTSConfigMixin(rx.State, mixin=True):
             self._save_agent_voices_for_engine(old_key)
             self._save_tts_toggles_for_engine(old_key)
 
-        # Enable TTS + set engine key, save immediately (before container ops that may fail)
+        # Enable TTS + set engine key (menu change → save immediately)
         self.enable_tts = True
         self.tts_engine = key
         self._save_settings()  # type: ignore[attr-defined]
+
+        # Restore per-engine settings into state (reads from settings.json, no write)
+        self._restore_agent_voices_for_engine(key)
+        self._restore_tts_toggles_for_engine(key)
+        self._switch_tts_voice_for_language(self.ui_language)  # type: ignore[attr-defined]
+
         self.add_debug(f"🔊 TTS Engine: {key}")  # type: ignore[attr-defined]
         yield
 
@@ -323,14 +329,7 @@ class TTSConfigMixin(rx.State, mixin=True):
             # Ollama/vLLM/TabbyAPI restart automatically on next request
             yield
 
-        # Restore per-engine settings for new engine
-        self._restore_agent_voices_for_engine(key)
-        self._restore_tts_toggles_for_engine(key)
-
-        # Restore user's saved voice preference for this engine
-        self._switch_tts_voice_for_language(self.ui_language)  # type: ignore[attr-defined]
-
-        self._save_settings()  # type: ignore[attr-defined]
+        # Per-engine settings already restored before container ops (see above)
 
     # ── Voice / Speed / Pitch / Autoplay ──────────────────────────
 
@@ -420,14 +419,14 @@ class TTSConfigMixin(rx.State, mixin=True):
         """Toggle TTS auto-play"""
         self.tts_autoplay = not self.tts_autoplay
         self.add_debug(f"🔊 TTS Auto-Play: {'enabled' if self.tts_autoplay else 'disabled'}")  # type: ignore[attr-defined]
-        self._save_settings()  # type: ignore[attr-defined]
+        self._save_tts_toggles_for_engine(self.tts_engine)
 
     def toggle_tts_streaming(self):
         """Toggle streaming TTS (sentence-by-sentence vs complete response)"""
         self.tts_streaming_enabled = not self.tts_streaming_enabled
         mode = "Streaming (realtime)" if self.tts_streaming_enabled else "Standard (after response)"
         self.add_debug(f"🔊 TTS Mode: {mode}")  # type: ignore[attr-defined]
-        self._save_settings()  # type: ignore[attr-defined]
+        self._save_tts_toggles_for_engine(self.tts_engine)
 
     def set_tts_playback_rate(self, rate: str):
         """Set TTS playback rate (browser-side only, TTS generation stays at 1.0)"""
@@ -451,21 +450,21 @@ class TTSConfigMixin(rx.State, mixin=True):
         if agent in self.tts_agent_voices:
             self.tts_agent_voices[agent]["voice"] = voice
             self.add_debug(f"🔊 {agent.capitalize()} Voice: {voice}")  # type: ignore[attr-defined]
-            self._save_settings()  # type: ignore[attr-defined]
+            self._save_agent_voices_for_engine(self.tts_engine)
 
     def set_agent_speed(self, agent: str, speed: str):
         """Set playback speed for a specific agent."""
         if agent in self.tts_agent_voices:
             self.tts_agent_voices[agent]["speed"] = speed
             self.add_debug(f"🔊 {agent.capitalize()} Speed: {speed}")  # type: ignore[attr-defined]
-            self._save_settings()  # type: ignore[attr-defined]
+            self._save_agent_voices_for_engine(self.tts_engine)
 
     def set_agent_pitch(self, agent: str, pitch: str):
         """Set pitch for a specific agent."""
         if agent in self.tts_agent_voices:
             self.tts_agent_voices[agent]["pitch"] = pitch
             self.add_debug(f"🔊 {agent.capitalize()} Pitch: {pitch}")  # type: ignore[attr-defined]
-            self._save_settings()  # type: ignore[attr-defined]
+            self._save_agent_voices_for_engine(self.tts_engine)
 
     def toggle_agent_tts(self, agent: str):
         """Toggle TTS enabled for a specific agent."""
@@ -473,7 +472,7 @@ class TTSConfigMixin(rx.State, mixin=True):
             self.tts_agent_voices[agent]["enabled"] = not self.tts_agent_voices[agent]["enabled"]
             status = "enabled" if self.tts_agent_voices[agent]["enabled"] else "disabled"
             self.add_debug(f"🔊 {agent.capitalize()} TTS: {status}")  # type: ignore[attr-defined]
-            self._save_settings()  # type: ignore[attr-defined]
+            self._save_agent_voices_for_engine(self.tts_engine)
 
     # ── Agent Editor TTS Handlers ────────────────────────────────
 
@@ -628,7 +627,8 @@ class TTSConfigMixin(rx.State, mixin=True):
         the user's agent voice preferences for that engine.
         """
         import copy
-        from ..lib.settings import load_settings, save_settings
+        import os
+        from ..lib.settings import load_settings, save_settings, SETTINGS_FILE
 
         settings = load_settings() or {}
         if "tts_agent_voices_per_engine" not in settings:
@@ -637,6 +637,11 @@ class TTSConfigMixin(rx.State, mixin=True):
         # Deep copy current agent voices
         settings["tts_agent_voices_per_engine"][engine_key] = copy.deepcopy(self.tts_agent_voices)
         save_settings(settings)
+        # Update mtime tracker so periodic poll doesn't trigger spurious reload
+        try:
+            self._last_settings_mtime = os.path.getmtime(SETTINGS_FILE)  # type: ignore[attr-defined]
+        except OSError:
+            pass
 
     def _restore_agent_voices_for_engine(self, engine_key: str):
         """Restore agent voices from settings for the specified engine.
@@ -675,7 +680,8 @@ class TTSConfigMixin(rx.State, mixin=True):
 
     def _save_tts_toggles_for_engine(self, engine_key: str):
         """Save current TTS toggles (autoplay, streaming) for the specified engine."""
-        from ..lib.settings import load_settings, save_settings
+        import os
+        from ..lib.settings import load_settings, save_settings, SETTINGS_FILE
 
         settings = load_settings() or {}
         if "tts_toggles_per_engine" not in settings:
@@ -686,6 +692,11 @@ class TTSConfigMixin(rx.State, mixin=True):
             "streaming": self.tts_streaming_enabled,
         }
         save_settings(settings)
+        # Update mtime tracker so periodic poll doesn't trigger spurious reload
+        try:
+            self._last_settings_mtime = os.path.getmtime(SETTINGS_FILE)  # type: ignore[attr-defined]
+        except OSError:
+            pass
 
     def _restore_tts_toggles_for_engine(self, engine_key: str):
         """Restore TTS toggles from settings for the specified engine.
