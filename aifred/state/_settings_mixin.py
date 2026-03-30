@@ -323,6 +323,11 @@ class SettingsMixin(rx.State, mixin=True):
         self.tts_autoplay = settings.get("tts_autoplay", self.tts_autoplay)  # type: ignore[attr-defined, has-type]
         self.tts_streaming_enabled = settings.get("tts_streaming_enabled", self.tts_streaming_enabled)  # type: ignore[attr-defined, has-type]
 
+        # Ensure all registered agents have TTS voice entries
+        self.ensure_all_agents_have_tts()  # type: ignore[attr-defined]
+        # Restore per-engine agent voices (if saved)
+        self._restore_agent_voices_for_engine(self.tts_engine)  # type: ignore[attr-defined, has-type]
+
         # UI language
         new_ui_lang = settings.get("ui_language", self.ui_language)
         if new_ui_lang != self.ui_language and new_ui_lang in ["de", "en"]:

@@ -9,78 +9,97 @@ Pipeline: Inbound Sanitization → Tier-Check → Tool-Aufruf → Output-Sanitiz
 
 ---
 
-## Naechste Schritte
+## Uebergabe / Aktueller Stand (2026-03-29)
 
-### Audio-Player Plugin (Tool Plugin)
-- [ ] Audiodateien abspielen auf dem lokalen System (aplay, mpv, etc.)
-- [ ] Sandbox kann WAV generieren → Audio-Player spielt ab
-- [ ] Integration mit Scheduler: Weckerton zu bestimmter Zeit abspielen
-- [ ] Tier: TIER_WRITE_DATA (Systemzugriff fuer Audio-Output)
+### Was heute gebaut und getestet wurde:
+- Security Layer komplett (S1-S7, S9): Tier-System, Audit-Log, Sanitization,
+  Credential Broker, Rate Limiting, Circuit Breaker, Action Confirmation
+- Scheduler (P1-P5): Job Store, isolierte Sessions, Delivery Modes, Webhook-API, Auto-Restart
+- Telegram Bot Plugin: Channel + Tools + Whitelist + Tests
+- Scheduler Tool Plugin: create/list/delete via Chat
+- Audit-Log UI + Allowlist UI
+- Proaktiver Assistent: Prompt-Vorlagen fuer E-Mail-Summary, Kalender etc.
+- Audio Manager + Audio Player Plugin (lib/audio_manager.py + plugins/tools/audio_player.py)
+  - Haendisch getestet mit echtem WAV, funktioniert
+  - Noch nicht im Browser live getestet (kein Lautsprecher am Mini)
+- Email Plugin komplett: move, list_folders, create_folder, mark (read/unread/flagged)
+- EPIM Fixes: Field-Mapping, ID-Strings, Encoding-Bug (Byte vs. Char-Laenge), Kontakt-Fields
+- Scroll-Fixes: Reconnect, Page-Load, Streaming-Absatzabstand
+- 110+ Unit Tests, umfangreiche Live-Tests via Chrome DevTools
+- Docs: Security-Architektur (DE/EN), Scheduler (DE/EN), Telegram Setup, Plugin Guide
+- Repo: Neues privates Repo, Legacy-Repo umbenannt, TODO.md aus History entfernt
 
-### TTS pro Agent (Stimmen-Zuordnung)
-- [ ] Jeder Agent bekommt eigene TTS-Stimme (konfigurierbar)
-- [ ] Generisch fuer unlimitierte Anzahl von Agenten
-- [ ] Pro Agent: TTS-Backend + Voice-Name/ID speichern
-- [ ] Voice-Cloning: User kann eigene Stimmen hochladen und Agenten zuweisen
-- [ ] Vordefinierte Stimmen aus dem TTS-Paket als Default
-- [ ] Persistenz in agent_config oder settings.json
+### TTS pro Agent (implementiert 2026-03-30)
 
-### Wake Word / Keyword Detection
-- [ ] Keyword-Erkennung: "Hallo AIfred" oder "Hey Alfred" aktiviert Aufnahme
-- [ ] Lokales Wake-Word-Modell (z.B. openWakeWord, Porcupine, Snowboy)
-- [ ] Laeuft als Background-Worker (wie Channel-Listener)
-- [ ] Nach Aktivierung: Aufnahme → STT → AIfred Engine → TTS → Wiedergabe
-- [ ] Konfigurierbar: Wake Word, Empfindlichkeit, Timeout
+- [x] `tts_agent_voices` dynamisch fuer ALLE registrierten Agenten
+- [x] Neuer Agent → automatisch Default-Voice-Eintrag
+- [x] Agent loeschen → TTS-Eintrag entfernen
+- [x] TTS-Config (Voice/Speed/Pitch/Enabled) im Agent-Editor Modal fuer alle Agenten
+- [x] Settings vereinfacht: nur Engine-Dropdown + Autoplay + Streaming
+- [x] Persistenz pro Engine in settings.json (tts_agent_voices_per_engine)
+- [ ] Live-Test im Browser
 
-### Echo Dot 2 Puck-Mod / Raumintercom
+### ECC-RAM deaktiviert (2026-03-29)
+Alle 4 GPUs: ECC off → 120 GB VRAM (vorher 112.5 GB). ~8.5% schneller.
+Befehl war: `sudo nvidia-smi -i 0,1,2,3 --ecc-config=0` + Reboot.
+
+---
+
+## Audio-Player Plugin
+
+Code existiert bereits (lib/audio_manager.py + plugins/tools/audio_player.py).
+Haendisch getestet, funktioniert mit aplay/ffplay.
+Warten auf Pucks / Lautsprecher-Setup fuer Live-Test.
+
+- [ ] Live-Test im Browser (AIfred soll WAV abspielen)
+- [ ] Integration mit Scheduler: Weckerton zu bestimmter Uhrzeit
+- [ ] Netzwerk-Playback (PulseAudio remote oder eigener Audio-Server fuer Pucks)
+
+---
+
+## Echo Dot 2 Puck-Mod / Raumintercom
 
 2x Echo Dot Gen 2 ("biscuit") bestellt (~15-18 EUR gesamt).
 Hardware: MediaTek MT8163V (Cortex-A53 Quad 1.5GHz), 512MB RAM, 4GB eMMC,
 7-Mikrofon-Array, TI TLV320DAC3203 Audio-Codec, Fire OS (Android 5.1).
 
-#### Phase 1: Root + Alexa deaktivieren (Fire OS behalten!)
+Architektur-Entscheidung: Fire OS behalten + rooten (NICHT postmarketOS).
+Vorteil: Alle Hardware-Treiber (Mikrofon-Array, Audio-Codec, WiFi) bleiben erhalten.
+Eigene Python-App auf Termux als Puck-Client.
+
+#### Phase 1: Root + Alexa deaktivieren
 - [ ] Root via amonet-biscuit (persistent/untethered, Preloader-Patch in eMMC)
   - Geraet oeffnen, UART-Testpads kurzschliessen fuer Download-Modus
-  - amonet Python-Script ausfuehren → Preloader patchen → TWRP flashen → Magisk
+  - amonet Python-Script → Preloader patchen → TWRP flashen → Magisk
   - GitHub: k4y0z/amonet-biscuit
-- [ ] OTA-Updates blockieren (DNS/hosts/iptables) — KRITISCH, sonst ueberschreibt Amazon
+- [ ] OTA-Updates blockieren (DNS/hosts/iptables) — KRITISCH
 - [ ] Alexa-Services deaktivieren (pm disable):
-  - com.amazon.dee.app (Alexa App)
-  - com.amazon.avs (Alexa Voice Service)
-  - com.amazon.device.sync (Cloud Sync)
-  - com.amazon.ota.forced (OTA Updates)
-- [ ] Termux installieren (ADB sideload) fuer Python-Umgebung
+  - com.amazon.dee.app, com.amazon.avs, com.amazon.device.sync, com.amazon.ota.forced
+- [ ] Termux installieren (ADB sideload)
 
 #### Phase 2: AIfred Puck-Client (Python auf Termux)
-- [ ] openWakeWord fuer Wake Word Detection (laeuft lokal auf ARM Cortex-A53)
+- [ ] openWakeWord fuer Wake Word Detection (lokal auf ARM Cortex-A53)
 - [ ] Mikrofon-Zugriff ueber Android AudioRecord API (pyaudio/sounddevice)
-- [ ] WebSocket-Client zum AIfred-Server (Mini)
-- [ ] Nach Wake Word: Audio-Stream per WebSocket an AIfred senden
-- [ ] TTS-Audio zurueck empfangen und ueber Lautsprecher abspielen
-- [ ] LED-Ring ansteuern (Aufnahme=blau, Antwort=gruen, Fehler=rot)
-- [ ] Open-Source Beamforming-Ersatz (webrtcvad + Delay-and-Sum)
-  - Amazons proprietaeres Beamforming geht verloren wenn AVS deaktiviert wird
-  - webrtcvad + einfaches Delay-and-Sum reicht fuer Raumgroessen bis ~4-5m
+- [ ] WebSocket-Client zum AIfred-Server
+- [ ] Audio-Stream nach Wake Word senden, TTS-Audio zurueck abspielen
+- [ ] LED-Ring ansteuern (blau=Aufnahme, gruen=Antwort, rot=Fehler)
+- [ ] Open-Source Beamforming-Ersatz (webrtcvad + Delay-and-Sum, ~4-5m Reichweite)
 
 #### Phase 3: PuckChannel Plugin (AIfred-seitig)
 - [ ] Neuer Channel-Plugin: PuckChannel (BaseChannel Pattern)
-- [ ] WebSocket-Server, jeder Puck meldet sich mit Raum-Name an
-- [ ] Audio empfangen → Whisper STT → Text
-- [ ] Text → AIfred Engine (source="puck", Tier je nach Stimmerkennung)
-- [ ] Antwort → Piper TTS → Audio-Stream zurueck an den aktiven Puck
-- [ ] Audio Manager kennt alle Pucks und routet Audio zum richtigen Raum
+- [ ] WebSocket-Server, Pucks melden sich mit Raum-Name an
+- [ ] Audio → Whisper STT → AIfred Engine → Piper TTS → Audio zurueck
+- [ ] Audio Manager routet zum richtigen Puck
 
 #### Phase 4: Raum-Routing + Intercom + Notfall
 - [ ] Aktiver Puck = Raum wo Wake Word gehoert wurde
-- [ ] "AIfred, spiel in der Kueche" → Audio-Routing umschalten
-- [ ] Intercom: "Sage meinem Sohn das Essen ist fertig" → Nachricht an anderen Puck
-- [ ] Notfall-Wake-Word ("Alfred Hilfe") → Alarm-Sound auf ALLEN Pucks + Push-Notification
-- [ ] Puck bei Eltern (untere Wohnung) als Notruf-Terminal
+- [ ] Audio-Routing umschalten ("AIfred, spiel in der Kueche")
+- [ ] Intercom: "Sage meinem Sohn das Essen ist fertig" → anderer Puck
+- [ ] Notfall-Wake-Word ("Alfred Hilfe") → Alarm auf ALLEN Pucks + Push
 
-#### Phase 5: Stimmerkennung (optional, spaeter)
+#### Phase 5: Stimmerkennung (spaeter)
 - [ ] Speaker Verification (pyannote-audio oder SpeechBrain)
-- [ ] Stimm-Registrierung: 5 Sekunden Sprachprobe als Embedding speichern
-- [ ] Automatische Sprecher-Erkennung nach Wake Word
+- [ ] Stimm-Registrierung → Embedding → automatische Sprecher-Erkennung
 - [ ] Rechte ableiten: Owner=Tier 4, Family=Tier 1, Unbekannt=Blocked
 
 ---
@@ -128,23 +147,12 @@ Hardware: MediaTek MT8163V (Cortex-A53 Quad 1.5GHz), 512MB RAM, 4GB eMMC,
 
 ## Offene Verbesserungen
 
-- [x] Layout-Shift beim Senden — Page scroll preservation via MutationObserver
-- [x] Streaming-Absatzabstand — line_height 1.35 + double newline compression
-- [ ] Multi-Email-Konto Support (mehrere IMAP/SMTP Accounts, Rechte pro Konto: read/write/delete)
-- [ ] EPIM Kontakt-Erstellung: Telefon/E-Mail Fields korrekt mappen
+- [ ] Multi-Email-Konto Support (mehrere IMAP/SMTP Accounts, Rechte pro Konto)
 - [ ] Kanaluebergreifendes Routing (eine Session ueber mehrere Kanaele)
 - [ ] Research-Pipeline State-Abhaengigkeit weiter reduzieren
 - [ ] Inbound-Sanitization Strictness pro Channel konfigurierbar
 - [ ] Session Memory Sanitization nach Job-Ende
 - [ ] Audit-Log UI Filter (Channel, Tool, Zeitraum)
-
----
-
-## Promotion & Community
-
-- [ ] Geeignetes Forum/Community fuer AIfred finden (nicht Reddit)
-- [ ] Hacker News Show HN Post evaluieren
-- [ ] Deutsche AI/Tech-Foren recherchieren
 
 ---
 

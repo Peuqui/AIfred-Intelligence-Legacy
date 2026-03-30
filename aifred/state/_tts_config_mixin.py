@@ -106,67 +106,33 @@ class TTSConfigMixin(rx.State, mixin=True):
         lang = self.ui_language if self.ui_language != "auto" else "de"  # type: ignore[attr-defined]
         return tts_key_to_label(self.tts_engine, lang=lang) if self.enable_tts else tts_key_to_label("off", lang=lang)
 
-    # ── Per-Agent Computed Vars ───────────────────────────────────
+    # ── Agent Editor TTS Computed Vars ───────────────────────────
+    # Used by the Agent Editor modal to show/edit TTS settings
+    # for whichever agent is currently being edited.
 
-    @rx.var
-    def aifred_voice(self) -> str:
-        """Get AIfred's current voice"""
-        return str(self.tts_agent_voices.get("aifred", {}).get("voice", ""))
+    @rx.var(deps=["editor_agent_id", "tts_agent_voices"], auto_deps=False)
+    def editor_agent_tts_voice(self) -> str:
+        """Current editor agent's TTS voice."""
+        agent_id = self.editor_agent_id  # type: ignore[attr-defined]
+        return str(self.tts_agent_voices.get(agent_id, {}).get("voice", ""))
 
-    @rx.var
-    def sokrates_voice(self) -> str:
-        """Get Sokrates' current voice"""
-        return str(self.tts_agent_voices.get("sokrates", {}).get("voice", ""))
+    @rx.var(deps=["editor_agent_id", "tts_agent_voices"], auto_deps=False)
+    def editor_agent_tts_speed(self) -> str:
+        """Current editor agent's TTS speed."""
+        agent_id = self.editor_agent_id  # type: ignore[attr-defined]
+        return str(self.tts_agent_voices.get(agent_id, {}).get("speed", "1.0x"))
 
-    @rx.var
-    def salomo_voice(self) -> str:
-        """Get Salomo's current voice"""
-        return str(self.tts_agent_voices.get("salomo", {}).get("voice", ""))
+    @rx.var(deps=["editor_agent_id", "tts_agent_voices"], auto_deps=False)
+    def editor_agent_tts_pitch(self) -> str:
+        """Current editor agent's TTS pitch."""
+        agent_id = self.editor_agent_id  # type: ignore[attr-defined]
+        return str(self.tts_agent_voices.get(agent_id, {}).get("pitch", "1.0"))
 
-    @rx.var
-    def aifred_speed(self) -> str:
-        """Get AIfred's current speed"""
-        return str(self.tts_agent_voices.get("aifred", {}).get("speed", "1.0x"))
-
-    @rx.var
-    def sokrates_speed(self) -> str:
-        """Get Sokrates' current speed"""
-        return str(self.tts_agent_voices.get("sokrates", {}).get("speed", "1.0x"))
-
-    @rx.var
-    def salomo_speed(self) -> str:
-        """Get Salomo's current speed"""
-        return str(self.tts_agent_voices.get("salomo", {}).get("speed", "1.0x"))
-
-    @rx.var
-    def aifred_pitch(self) -> str:
-        """Get AIfred's current pitch"""
-        return str(self.tts_agent_voices.get("aifred", {}).get("pitch", "1.0"))
-
-    @rx.var
-    def sokrates_pitch(self) -> str:
-        """Get Sokrates' current pitch"""
-        return str(self.tts_agent_voices.get("sokrates", {}).get("pitch", "1.0"))
-
-    @rx.var
-    def salomo_pitch(self) -> str:
-        """Get Salomo's current pitch"""
-        return str(self.tts_agent_voices.get("salomo", {}).get("pitch", "1.0"))
-
-    @rx.var
-    def aifred_tts_enabled(self) -> bool:
-        """Check if AIfred's TTS is enabled"""
-        return bool(self.tts_agent_voices.get("aifred", {}).get("enabled", True))
-
-    @rx.var
-    def sokrates_tts_enabled(self) -> bool:
-        """Check if Sokrates' TTS is enabled"""
-        return bool(self.tts_agent_voices.get("sokrates", {}).get("enabled", True))
-
-    @rx.var
-    def salomo_tts_enabled(self) -> bool:
-        """Check if Salomo's TTS is enabled"""
-        return bool(self.tts_agent_voices.get("salomo", {}).get("enabled", True))
+    @rx.var(deps=["editor_agent_id", "tts_agent_voices"], auto_deps=False)
+    def editor_agent_tts_enabled(self) -> bool:
+        """Current editor agent's TTS enabled state."""
+        agent_id = self.editor_agent_id  # type: ignore[attr-defined]
+        return bool(self.tts_agent_voices.get(agent_id, {}).get("enabled", True))
 
     # ── TTS Toggle / Engine Selection ─────────────────────────────
 
@@ -438,88 +404,51 @@ class TTSConfigMixin(rx.State, mixin=True):
     # ── Per-Agent Voice Settings ──────────────────────────────────
 
     def set_agent_voice(self, agent: str, voice: str):
-        """Set voice for a specific agent (aifred, sokrates, salomo)"""
+        """Set voice for a specific agent."""
         if agent in self.tts_agent_voices:
             self.tts_agent_voices[agent]["voice"] = voice
             self.add_debug(f"🔊 {agent.capitalize()} Voice: {voice}")  # type: ignore[attr-defined]
             self._save_settings()  # type: ignore[attr-defined]
 
     def set_agent_speed(self, agent: str, speed: str):
-        """Set playback speed for a specific agent"""
+        """Set playback speed for a specific agent."""
         if agent in self.tts_agent_voices:
             self.tts_agent_voices[agent]["speed"] = speed
             self.add_debug(f"🔊 {agent.capitalize()} Speed: {speed}")  # type: ignore[attr-defined]
             self._save_settings()  # type: ignore[attr-defined]
 
     def set_agent_pitch(self, agent: str, pitch: str):
-        """Set pitch for a specific agent"""
+        """Set pitch for a specific agent."""
         if agent in self.tts_agent_voices:
             self.tts_agent_voices[agent]["pitch"] = pitch
             self.add_debug(f"🔊 {agent.capitalize()} Pitch: {pitch}")  # type: ignore[attr-defined]
             self._save_settings()  # type: ignore[attr-defined]
 
     def toggle_agent_tts(self, agent: str):
-        """Toggle TTS enabled for a specific agent"""
+        """Toggle TTS enabled for a specific agent."""
         if agent in self.tts_agent_voices:
             self.tts_agent_voices[agent]["enabled"] = not self.tts_agent_voices[agent]["enabled"]
             status = "enabled" if self.tts_agent_voices[agent]["enabled"] else "disabled"
             self.add_debug(f"🔊 {agent.capitalize()} TTS: {status}")  # type: ignore[attr-defined]
             self._save_settings()  # type: ignore[attr-defined]
 
-    # Helper methods to create bound event handlers for UI
-    def set_aifred_voice(self, voice: str):
-        """Set AIfred's voice"""
-        self.set_agent_voice("aifred", voice)
+    # Agent Editor TTS handlers — operate on the currently edited agent
+    def set_editor_agent_tts_voice(self, voice: str):
+        """Set TTS voice for the agent currently open in the editor."""
+        self.set_agent_voice(self.editor_agent_id, voice)  # type: ignore[attr-defined]
 
-    def set_sokrates_voice(self, voice: str):
-        """Set Sokrates' voice"""
-        self.set_agent_voice("sokrates", voice)
-
-    def set_salomo_voice(self, voice: str):
-        """Set Salomo's voice"""
-        self.set_agent_voice("salomo", voice)
-
-    def set_aifred_speed(self, speed: str):
-        """Set AIfred's playback speed"""
-        self.set_agent_speed("aifred", speed)
-        # Also update browser playback rate immediately (so currently playing audio changes speed)
+    def set_editor_agent_tts_speed(self, speed: str):
+        """Set TTS speed for the agent currently open in the editor."""
+        self.set_agent_speed(self.editor_agent_id, speed)  # type: ignore[attr-defined]
         self.tts_playback_rate = speed
 
-    def set_sokrates_speed(self, speed: str):
-        """Set Sokrates' playback speed"""
-        self.set_agent_speed("sokrates", speed)
-        # Also update browser playback rate immediately (so currently playing audio changes speed)
-        self.tts_playback_rate = speed
+    def set_editor_agent_tts_pitch(self, pitch: str):
+        """Set TTS pitch for the agent currently open in the editor."""
+        self.set_agent_pitch(self.editor_agent_id, pitch)  # type: ignore[attr-defined]
 
-    def set_salomo_speed(self, speed: str):
-        """Set Salomo's playback speed"""
-        self.set_agent_speed("salomo", speed)
-        # Also update browser playback rate immediately (so currently playing audio changes speed)
-        self.tts_playback_rate = speed
-
-    def set_aifred_pitch(self, pitch: str):
-        """Set AIfred's pitch"""
-        self.set_agent_pitch("aifred", pitch)
-
-    def set_sokrates_pitch(self, pitch: str):
-        """Set Sokrates' pitch"""
-        self.set_agent_pitch("sokrates", pitch)
-
-    def set_salomo_pitch(self, pitch: str):
-        """Set Salomo's pitch"""
-        self.set_agent_pitch("salomo", pitch)
-
-    def toggle_aifred_tts(self):
-        """Toggle AIfred's TTS"""
-        self.toggle_agent_tts("aifred")
-
-    def toggle_sokrates_tts(self):
-        """Toggle Sokrates' TTS"""
-        self.toggle_agent_tts("sokrates")
-
-    def toggle_salomo_tts(self):
-        """Toggle Salomo's TTS"""
-        self.toggle_agent_tts("salomo")
+    def toggle_editor_agent_tts(self):
+        """Toggle TTS for the agent currently open in the editor."""
+        self.toggle_agent_tts(self.editor_agent_id)  # type: ignore[attr-defined]
 
     # ── Engine Key Helper ─────────────────────────────────────────
 
@@ -531,6 +460,31 @@ class TTSConfigMixin(rx.State, mixin=True):
         return self.tts_engine
 
     # ── XTTS Voice Refresh ────────────────────────────────────────
+
+    def ensure_all_agents_have_tts(self) -> None:
+        """Ensure every registered agent has a TTS voice entry.
+
+        Adds missing agents with engine-specific defaults.
+        Removes entries for agents that no longer exist.
+        Called after settings load and after agent create/delete.
+        """
+        from ..lib.agent_config import get_agent_ids
+        from ..lib.config import TTS_AGENT_VOICE_DEFAULTS
+
+        registered = set(get_agent_ids())
+        current = set(self.tts_agent_voices.keys())
+
+        # Add missing agents
+        defaults = TTS_AGENT_VOICE_DEFAULTS.get(self.tts_engine, {})
+        generic_default = {"voice": "", "speed": "1.0x", "pitch": "1.0", "enabled": True}
+        for agent_id in registered - current:
+            if agent_id == "vision":
+                continue  # Vision agent doesn't use TTS
+            self.tts_agent_voices[agent_id] = dict(defaults.get(agent_id, generic_default))
+
+        # Remove agents that no longer exist
+        for agent_id in current - registered:
+            del self.tts_agent_voices[agent_id]
 
     def _refresh_xtts_voices(self):
         """Refresh XTTS voices from Docker service.
@@ -545,12 +499,11 @@ class TTSConfigMixin(rx.State, mixin=True):
             self.xtts_voices_cache = sort_voices_custom_first(list(voices.keys()))
             self.add_debug(f"🎤 XTTS: {len(voices)} voices loaded")  # type: ignore[attr-defined]
 
-            # Validate agent voices - reset if not in available list
+            # Validate all agent voices — reset if not in available list
             xtts_defaults = TTS_AGENT_VOICE_DEFAULTS.get("xtts", {})
-            for agent in ["aifred", "sokrates", "salomo"]:
-                current_voice = self.tts_agent_voices.get(agent, {}).get("voice", "")
+            for agent in list(self.tts_agent_voices.keys()):
+                current_voice = self.tts_agent_voices[agent].get("voice", "")
                 if current_voice and current_voice not in self.xtts_voices_cache:
-                    # Voice not found - use default
                     default_voice = xtts_defaults.get(agent, {}).get("voice", "")
                     if default_voice:
                         self.tts_agent_voices[agent]["voice"] = default_voice
@@ -595,11 +548,12 @@ class TTSConfigMixin(rx.State, mixin=True):
                     self.tts_agent_voices[agent].update(saved_agent_voices[agent])
             source = "Restored"
         else:
-            # Use engine-specific defaults
+            # Use engine-specific defaults (known agents get specific defaults,
+            # custom agents keep their current voice or get generic default)
             defaults = TTS_AGENT_VOICE_DEFAULTS.get(engine_key, {})
-            for agent, settings_dict in defaults.items():
-                if agent in self.tts_agent_voices:
-                    self.tts_agent_voices[agent].update(settings_dict)
+            for agent in self.tts_agent_voices:
+                if agent in defaults:
+                    self.tts_agent_voices[agent].update(defaults[agent])
             source = "Default"
 
         # Log actual agent voices

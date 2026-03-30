@@ -91,14 +91,6 @@ def _sampling_agent_row(agent: str, emoji: str, label: str, reset_handler) -> rx
 
 
 # ============================================================
-# VOICE SETTINGS HELPERS
-# ============================================================
-
-_PITCH_OPTIONS = ["0.8", "0.85", "0.9", "0.95", "1.0", "1.05", "1.1", "1.15", "1.2"]
-_SPEED_OPTIONS = ["0.8x", "0.9x", "1.0x", "1.1x", "1.2x", "1.25x", "1.5x", "2.0x"]
-
-
-# ============================================================
 # CONTEXT CONTROL HELPERS
 # ============================================================
 
@@ -137,45 +129,6 @@ def _ctx_column(
         ),
         spacing="1",
         **extra_style,
-    )
-
-
-def _voice_agent_row(
-    emoji: str, label: str,
-    voice_var, voice_handler,
-    pitch_var, pitch_handler,
-    speed_var, speed_handler,
-) -> rx.Component:
-    """Helper: One agent row with voice, pitch and speed selects."""
-    return rx.hstack(
-        rx.text(f"{emoji} {label}", font_size="10px", width="70px"),
-        rx.box(
-            rx.select(
-                AIState.available_tts_voices,
-                value=voice_var,
-                on_change=voice_handler,
-                placeholder="Default",
-                size="1",
-            ),
-            flex="1",
-        ),
-        rx.select(
-            _PITCH_OPTIONS,
-            value=pitch_var,
-            on_change=pitch_handler,
-            size="1",
-            width="65px",
-        ),
-        rx.select(
-            _SPEED_OPTIONS,
-            value=speed_var,
-            on_change=speed_handler,
-            size="1",
-            width="65px",
-        ),
-        spacing="2",
-        align="center",
-        width="100%",
     )
 
 
@@ -1248,49 +1201,7 @@ def settings_accordion() -> rx.Component:
                         align="center",
                         width="100%",
                     ),
-                    rx.cond(
-                        AIState.enable_tts,
-                        rx.vstack(
-                            # Per-Agent Voice Settings (generic for all TTS engines)
-                            rx.vstack(
-                                rx.divider(margin_top="8px", margin_bottom="8px"),
-                                rx.text("\U0001f3ad Agentenstimmen", font_weight="bold", font_size="11px", color="#888"),
-                                # Header row with labels
-                                rx.hstack(
-                                    rx.text("", width="70px"),  # Spacer for agent name
-                                    rx.box(rx.text("Voice", font_size="9px", color="#d4a14a"), flex="1"),
-                                    rx.text("Pitch", font_size="9px", color="#d4a14a", width="65px", text_align="center"),
-                                    rx.text("Speed", font_size="9px", color="#d4a14a", width="65px", text_align="center"),
-                                    spacing="2",
-                                    width="100%",
-                                ),
-                                # Per-Agent Voice Rows
-                                _voice_agent_row(
-                                    "\U0001f3a9", "AIfred",
-                                    AIState.aifred_voice, AIState.set_aifred_voice,
-                                    AIState.aifred_pitch, AIState.set_aifred_pitch,
-                                    AIState.aifred_speed, AIState.set_aifred_speed,
-                                ),
-                                _voice_agent_row(
-                                    "\U0001f3db\ufe0f", "Sokrates",
-                                    AIState.sokrates_voice, AIState.set_sokrates_voice,
-                                    AIState.sokrates_pitch, AIState.set_sokrates_pitch,
-                                    AIState.sokrates_speed, AIState.set_sokrates_speed,
-                                ),
-                                _voice_agent_row(
-                                    "\U0001f451", "Salomo",
-                                    AIState.salomo_voice, AIState.set_salomo_voice,
-                                    AIState.salomo_pitch, AIState.set_salomo_pitch,
-                                    AIState.salomo_speed, AIState.set_salomo_speed,
-                                ),
-                                spacing="2",
-                                width="100%",
-                            ),
-                            spacing="3",
-                            width="100%",
-                        ),
-                        rx.box(),  # Empty when TTS disabled
-                    ),
+                    # Agent voices are configured in the Agent Editor modal
                     spacing="2",
                     width="100%",
                 ),

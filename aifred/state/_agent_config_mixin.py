@@ -1152,6 +1152,7 @@ class AgentConfigMixin(rx.State, mixin=True):
                 role=self.editor_role,
             )
             register_agent_toggles(agent_id, new_config.toggles)
+            self.ensure_all_agents_have_tts()  # type: ignore[attr-defined]
             self.add_debug(  # type: ignore[attr-defined]
                 f"\u2705 Agent '{self.editor_display_name}' created"
             )
@@ -1185,6 +1186,7 @@ class AgentConfigMixin(rx.State, mixin=True):
         try:
             delete_agent(agent_id)
             unregister_agent_toggles(agent_id)
+            self.ensure_all_agents_have_tts()  # type: ignore[attr-defined]
             self.add_debug(f"\U0001f5d1\ufe0f Agent '{agent_id}' deleted")  # type: ignore[attr-defined]
         except ValueError as e:
             self.add_debug(f"\u26a0\ufe0f {e}")  # type: ignore[attr-defined]

@@ -283,6 +283,105 @@ def reasoning_thinking_help_modal() -> rx.Component:
     )
 
 
+def research_help_modal() -> rx.Component:
+    """Fullscreen Overlay explaining the research modes (Auto, Knowledge, Web 3, Web 7)."""
+    return rx.cond(
+        AIState.research_help_open,
+        rx.box(
+            # Backdrop
+            rx.box(
+                position="absolute",
+                top="0",
+                left="0",
+                width="100%",
+                height="100%",
+                background_color="rgba(0, 0, 0, 0.85)",
+                on_click=AIState.close_research_help,
+            ),
+            # Modal Content
+            rx.vstack(
+                # Header
+                rx.hstack(
+                    rx.icon("lightbulb", size=24, color="#FFD700"),
+                    rx.text(t("research_help_title"), color="white", font_weight="bold", font_size="18px"),
+                    spacing="3",
+                    align="center",
+                ),
+                # Table
+                rx.box(
+                    rx.table.root(
+                        rx.table.header(
+                            rx.table.row(
+                                rx.table.column_header_cell(t("research_help_mode"), style={"color": "#FFD700", "font_weight": "bold"}),
+                                rx.table.column_header_cell(t("research_help_desc"), style={"color": "#FFD700", "font_weight": "bold"}),
+                            ),
+                        ),
+                        rx.table.body(
+                            rx.table.row(
+                                rx.table.cell("✨ Automatik", style={"white_space": "nowrap", "font_weight": "bold"}),
+                                rx.table.cell(t("research_help_auto_desc")),
+                            ),
+                            rx.table.row(
+                                rx.table.cell("\U0001f4a1 Wissen", style={"white_space": "nowrap", "font_weight": "bold"}),
+                                rx.table.cell(t("research_help_knowledge_desc")),
+                            ),
+                            rx.table.row(
+                                rx.table.cell("\u26a1 Web 3", style={"white_space": "nowrap", "font_weight": "bold"}),
+                                rx.table.cell(t("research_help_web3_desc")),
+                            ),
+                            rx.table.row(
+                                rx.table.cell("\U0001f30d Web 7", style={"white_space": "nowrap", "font_weight": "bold"}),
+                                rx.table.cell(t("research_help_web7_desc")),
+                            ),
+                        ),
+                        style={
+                            "width": "100%",
+                            "border_collapse": "collapse",
+                            "& th, & td": {
+                                "padding": "10px 15px",
+                                "text_align": "left",
+                                "border_bottom": "1px solid #444",
+                            },
+                        },
+                    ),
+                    width="100%",
+                    overflow_x="auto",
+                ),
+                # Close button
+                rx.button(
+                    t("research_help_close"),
+                    on_click=AIState.close_research_help,
+                    variant="soft",
+                    color_scheme="gray",
+                    size="3",
+                    margin_top="15px",
+                ),
+                spacing="4",
+                align="center",
+                padding="25px",
+                background_color="#1a1a1a",
+                border_radius="12px",
+                max_width="95vw",
+                width="600px",
+                max_height="90vh",
+                overflow_y="auto",
+                position="relative",
+                z_index="1001",
+                color="white",
+            ),
+            position="fixed",
+            top="0",
+            left="0",
+            width="100vw",
+            height="100vh",
+            z_index="1000",
+            display="flex",
+            justify_content="center",
+            align_items="center",
+        ),
+    )
+
+
 def login_dialog() -> rx.Component:
     """
     Fullscreen Overlay für Login/Registrierung.

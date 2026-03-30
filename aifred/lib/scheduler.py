@@ -178,11 +178,28 @@ class JobStore:
             conn.commit()
 
     def mark_failed(self, job_id: int) -> None:
-        """Increment retry count after a failed execution."""
+        """Increment retry count and advance next_run to prevent infinite retries."""
+        now = _now_iso()
+        job = self.get(job_id)
+        if not job:
+            return
+
+        if job.schedule_type == "once":
+            # One-shot job failed — disable it
+            with self._connect() as conn:
+                conn.execute(
+                    "UPDATE jobs SET retry_count = retry_count + 1, enabled = 0 WHERE job_id = ?",
+                    (job_id,),
+                )
+                conn.commit()
+            return
+
+        # Recurring job: advance next_run so it doesn't retry every minute
+        next_run = _calculate_next_run(job.schedule_type, job.schedule_expr, now)
         with self._connect() as conn:
             conn.execute(
-                "UPDATE jobs SET retry_count = retry_count + 1 WHERE job_id = ?",
-                (job_id,),
+                "UPDATE jobs SET retry_count = retry_count + 1, next_run = ? WHERE job_id = ?",
+                (next_run, job_id),
             )
             conn.commit()
 

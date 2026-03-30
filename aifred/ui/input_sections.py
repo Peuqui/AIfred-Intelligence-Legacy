@@ -260,23 +260,26 @@ def image_upload_section() -> rx.Component:
 
             # Audio File Upload Button
             rx.upload(
-                rx.button(
-                    rx.icon("disc-3", size=16),
-                    rx.text(t("audio"), font_size="14px", display=["none", "none", "inline"]),
-                    size="2",
-                    variant="outline",
-                    color_scheme="blue",
-                    width="100%",
-                    disabled=AIState.is_generating | AIState.is_uploading_image | AIState.is_uploading_document,
-                    style={
-                        "background": "rgba(0, 50, 100, 0.4)",
-                        "color": "#58a6ff",
-                        "border_color": "#58a6ff",
-                        "&:hover:not([disabled])": {
-                            "background": "rgba(0, 80, 150, 0.6) !important",
+                rx.tooltip(
+                    rx.button(
+                        rx.icon("disc-3", size=16),
+                        rx.text(t("audio"), font_size="14px", display=["none", "none", "inline"]),
+                        size="2",
+                        variant="outline",
+                        color_scheme="blue",
+                        width="100%",
+                        disabled=AIState.is_generating | AIState.is_uploading_image | AIState.is_uploading_document,
+                        style={
+                            "background": "rgba(0, 50, 100, 0.4)",
+                            "color": "#58a6ff",
+                            "border_color": "#58a6ff",
+                            "&:hover:not([disabled])": {
+                                "background": "rgba(0, 80, 150, 0.6) !important",
+                            },
+                            "&[disabled]": {"opacity": "0.45"},
                         },
-                        "&[disabled]": {"opacity": "0.45"},
-                    },
+                    ),
+                    content=t("audio_hint"),
                 ),
                 id="audio-upload",
                 accept={"audio/*": [".wav", ".mp3", ".m4a", ".ogg", ".flac", ".webm"]},
@@ -445,26 +448,20 @@ def text_input_section() -> rx.Component:
             _research_pill("none", "💡 Wissen", "💡 Knowledge"),
             _research_pill("quick", "⚡ Web 3", "⚡ Web 3"),
             _research_pill("deep", "🌍 Web 7", "🌍 Web 7"),
-            # Info-Icon (nur Desktop)
-            rx.cond(
-                AIState.is_mobile,
-                rx.fragment(),
-                rx.hover_card.root(
-                    rx.hover_card.trigger(
-                        rx.icon("info", size=14, color=COLORS["text_secondary"], cursor="help"),
-                    ),
-                    rx.hover_card.content(
-                        rx.text(t("choose_research_mode"), font_size="12px", color=COLORS["text_primary"]),
-                        side="top",
-                        style={
-                            "background": COLORS["card_bg"],
-                            "border": f"1px solid {COLORS['border']}",
-                            "border_radius": "8px",
-                            "padding": "8px 12px",
-                            "box_shadow": "0 4px 12px rgba(0,0,0,0.4)",
-                        },
-                    ),
+            # Research mode help lightbulb (opens modal on click)
+            rx.tooltip(
+                rx.icon(
+                    "lightbulb",
+                    size=16,
+                    color="#FFD700",
+                    cursor="pointer",
+                    on_click=AIState.open_research_help,
+                    style={
+                        "transition": "transform 0.2s ease",
+                        "&:hover": {"transform": "scale(1.15)"},
+                    },
                 ),
+                content=t("choose_research_mode"),
             ),
             spacing="2",
             align="center",
@@ -686,7 +683,8 @@ def text_input_section() -> rx.Component:
                     "&[disabled]": {"opacity": "0.45"},
                 },
             ),
-            rx.button(
+            rx.tooltip(
+              rx.button(
                 rx.icon("pin", size=16),
                 rx.cond(AIState.is_mobile, rx.fragment(), t("save_memory")),
                 on_click=AIState.save_session_memory,
@@ -709,6 +707,8 @@ def text_input_section() -> rx.Component:
                     },
                     "&[disabled]": {"opacity": "0.45"},
                 },
+              ),
+              content=t("save_memory_hint"),
             ),
             rx.button(
                 rx.icon("share-2", size=16),

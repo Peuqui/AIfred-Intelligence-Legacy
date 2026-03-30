@@ -535,6 +535,82 @@ def _agent_edit_view() -> rx.Component:
             ),
         ),
 
+        # TTS Voice Settings (only for existing agents, not vision)
+        rx.cond(
+            ~is_new & (AIState.editor_role != "vision"),
+            rx.vstack(
+                rx.hstack(
+                    rx.text(
+                        "\U0001f50a Sprachausgabe",
+                        color="#FFD700",
+                        font_weight="bold",
+                        font_size="14px",
+                    ),
+                    rx.spacer(),
+                    # Enabled toggle
+                    rx.hstack(
+                        rx.switch(
+                            checked=AIState.editor_agent_tts_enabled,
+                            on_change=AIState.toggle_editor_agent_tts,
+                            size="1",
+                        ),
+                        rx.text(
+                            rx.cond(AIState.editor_agent_tts_enabled, "ON", "OFF"),
+                            font_size="10px",
+                            color=rx.cond(AIState.editor_agent_tts_enabled, "#d4a14a", "#666"),
+                        ),
+                        spacing="1",
+                        align="center",
+                    ),
+                    width="100%",
+                    align="center",
+                ),
+                # Voice dropdown
+                rx.hstack(
+                    rx.text("Voice", font_size="11px", color="#aaa", width="50px"),
+                    rx.select(
+                        AIState.available_tts_voices,
+                        value=AIState.editor_agent_tts_voice,
+                        on_change=AIState.set_editor_agent_tts_voice,
+                        placeholder="Default",
+                        size="1",
+                        width="100%",
+                    ),
+                    spacing="2",
+                    align="center",
+                    width="100%",
+                ),
+                # Speed + Pitch
+                rx.hstack(
+                    rx.text("Speed", font_size="11px", color="#aaa", width="50px"),
+                    rx.select(
+                        ["0.8x", "0.9x", "1.0x", "1.1x", "1.2x", "1.25x", "1.5x", "2.0x"],
+                        value=AIState.editor_agent_tts_speed,
+                        on_change=AIState.set_editor_agent_tts_speed,
+                        size="1",
+                        width="90px",
+                    ),
+                    rx.text("Pitch", font_size="11px", color="#aaa", width="50px"),
+                    rx.select(
+                        ["0.8", "0.85", "0.9", "0.95", "1.0", "1.05", "1.1", "1.15", "1.2"],
+                        value=AIState.editor_agent_tts_pitch,
+                        on_change=AIState.set_editor_agent_tts_pitch,
+                        size="1",
+                        width="90px",
+                    ),
+                    spacing="2",
+                    align="center",
+                    width="100%",
+                ),
+                spacing="2",
+                width="100%",
+                padding="10px",
+                background_color="#222",
+                border_radius="8px",
+                border="1px solid #333",
+            ),
+        ),
+
         # Action buttons
         rx.hstack(
             rx.button(
