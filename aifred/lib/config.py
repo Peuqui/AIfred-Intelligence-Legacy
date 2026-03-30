@@ -878,15 +878,14 @@ MAX_TOOL_ROUNDS = 10
 LLAMACPP_VISION_VRAM_RESERVE = 768  # MB (~682 measured + margin)
 
 # XTTS VRAM reservation (MB)
-# XTTS model uses ~2044 MiB when loaded. Add small buffer for safety.
-# This is subtracted from available context when TTS is enabled with XTTS engine.
-XTTS_VRAM_MB = 2100  # MB (~2044 measured + 56 buffer)
+# Idle: ~2073 MiB, Peak during inference: ~2837 MiB (RTX 8000)
+# Use peak + buffer so LLM context doesn't compete with TTS during generation.
+XTTS_VRAM_MB = 2900  # MB (measured peak 2837 + 63 buffer)
 
 # MOSS-TTS VRAM reservation (MB)
-# MOSS-TTS (1.7B, 32 RVQ channels) uses ~11.5 GB VRAM in BF16 on RTX 3090 Ti.
-# Measured: 12.07 GB free → 0.6 GB free after model load = ~11.47 GB used.
-# Confirmed by MOSS developers: 14-15 GB expected (includes KV cache during generation).
-MOSS_TTS_VRAM_MB = 11500  # MB (~11,470 measured + 30 buffer)
+# Idle: ~13.299 MiB, Peak during inference: ~13.609 MiB (RTX 8000, 1.7B model)
+# Use peak + buffer so LLM context doesn't compete with TTS during generation.
+MOSS_TTS_VRAM_MB = 13700  # MB (measured peak 13609 + 91 buffer)
 
 # Docker-Compose paths (for container start/stop)
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

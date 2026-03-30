@@ -10,9 +10,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Clone MOSS-TTS repository (no pip-only install available)
 RUN git clone https://github.com/OpenMOSS/MOSS-TTS.git /opt/moss-tts
 
-# Install MOSS-TTS with PyTorch 2.9+cu128 and Transformers 5.0
-RUN cd /opt/moss-tts && pip install --no-cache-dir \
-    --extra-index-url https://download.pytorch.org/whl/cu128 -e .
+# Install PyTorch with CUDA + transformers 5.0.0 (recommended by MOSS-TTS docs)
+# Pin torchaudio<2.6 to avoid torchcodec/FFmpeg library issues
+RUN pip install --no-cache-dir \
+    --extra-index-url https://download.pytorch.org/whl/cu128 \
+    "torch<2.6" "torchaudio<2.6" "transformers==5.0.0"
+
+# Install MOSS-TTS
+RUN cd /opt/moss-tts && pip install --no-cache-dir -e .
 
 # Flask + Gunicorn for API server
 RUN pip install --no-cache-dir flask gunicorn
