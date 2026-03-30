@@ -340,6 +340,7 @@ class LlamaCppBackend(OpenAICompatibleBackend):
         self,
         model: str,
         dry_run: bool = False,
+        min_kv: str = "f16",
     ) -> AsyncIterator[str]:
         """
         Calibrate maximum context for a llama.cpp model via binary search.
@@ -378,6 +379,7 @@ class LlamaCppBackend(OpenAICompatibleBackend):
                 gguf_path=gguf_path,
                 full_cmd=model_info["full_cmd"],
                 config_path=None if dry_run else LLAMASWAP_CONFIG_PATH,
+                min_kv=min_kv,
             ):
                 yield msg
         finally:

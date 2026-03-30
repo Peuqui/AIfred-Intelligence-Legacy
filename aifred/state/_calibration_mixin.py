@@ -313,6 +313,7 @@ class CalibrationMixin(rx.State, mixin=True):
             calibrated_ctx = None
             calibrated_ngl = 99
             calibrated_mode = "gpu"
+            calibration_kv = "f16"
             thinking_tested = False
             speed_layer_split = ""
             speed_split_cuda0 = 0
@@ -331,6 +332,7 @@ class CalibrationMixin(rx.State, mixin=True):
                     calibrated_ctx = r["ctx"]
                     calibrated_ngl = r["ngl"]
                     calibrated_mode = r["mode"]
+                    calibration_kv = r["kv"]
                     if r["thinks_tested"]:
                         thinking_tested = True
                         supports_thinking = r["thinks"]
@@ -474,9 +476,9 @@ class CalibrationMixin(rx.State, mixin=True):
                     yield
 
                     tts_ctx = None
-                    tts_kv = "f16"
+                    tts_kv = calibration_kv
                     async for progress_msg in backend.calibrate_max_context_generator(  # type: ignore[attr-defined]
-                        calibration_model_id, dry_run=True,
+                        calibration_model_id, dry_run=True, min_kv=calibration_kv,
                     ):
                         if progress_msg.startswith("__RESULT__:"):
                             r = _parse_calibration_result(progress_msg)

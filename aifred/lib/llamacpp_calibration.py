@@ -2125,15 +2125,16 @@ async def _calibrate_speed_split(
     gguf_path: Path,
     per_gpu_total_mb: list[int],
     safety_margin: int = LLAMACPP_VRAM_SAFETY_MARGIN,
+    base_kv: str = "f16",
 ) -> AsyncIterator[str]:
     """Speed split: use minimum GPUs for fewer boundary transfers.
 
     Strategy: fewer GPU boundaries = less transfer overhead per token = faster.
     1. Find minimum GPU count needed to hold model weights.
     2. Build tensor-split with only those GPUs active (rest get 0).
-    3. Phase A: Binary search for max layers on fastest GPU at target_context (f16).
-    4. Phase B: Maximize context at found split. Independent KV chain:
-       starts with f16, falls back to q8_0 if f16 < MIN_USEFUL.
+    3. Phase A: Binary search for max layers on fastest GPU at target_context.
+    4. Phase B: Maximize context at found split. KV chain starts at base_kv
+       (inherited from Phase 1), falls back to q8_0/q4_0 if needed.
 
     Args:
         per_gpu_total_mb: Total VRAM per GPU in MiB, sorted descending
@@ -2195,8 +2196,9 @@ async def _calibrate_speed_split(
     # Pad with zeros for inactive GPUs
     padded_ratios = [float(n) for n in layers] + [0.0] * (total_gpus - min_gpus)
 
-    # Speed variant starts fresh with f16 KV (independent of Phase 1)
-    speed_base_cmd = _inject_kv_quant(full_cmd, "f16")
+    # Speed variant inherits KV level from Phase 1 (if f16 didn't fit there,
+    # it won't fit here with fewer GPUs either)
+    speed_base_cmd = _inject_kv_quant(full_cmd, base_kv)
 
     layers_fmt = _format_layer_split(padded_ratios)
     yield f"Initial speed split: {layers_fmt}"
@@ -2223,11 +2225,13 @@ async def _calibrate_speed_split(
 
     best_split = _format_layer_split(padded_ratios)
 
-    # ── Phase B: Maximize context with independent KV chain ──
-    # Start with f16, fall back to q8_0 if f16 < MIN_USEFUL
-    speed_kv_levels = ["f16", "q8_0"]
+    # ── Phase B: Maximize context with KV chain starting at base_kv ──
+    # KV level inherited from Phase 1 — no point trying higher levels
+    all_kv = ["f16", "q8_0", "q4_0"]
+    start_idx = all_kv.index(base_kv) if base_kv in all_kv else 0
+    speed_kv_levels = all_kv[start_idx:]
     best_context = 0
-    best_speed_kv = "f16"
+    best_speed_kv = base_kv
 
     for kv_level in speed_kv_levels:
         if kv_level == "q8_0" and best_context >= MIN_USEFUL_CONTEXT_TOKENS:
@@ -2513,6 +2517,7 @@ async def calibrate_llamacpp_model(
     full_cmd: str,
     port: int = LLAMACPP_CALIBRATION_PORT,
     config_path: Optional[Path] = None,
+    min_kv: str = "f16",
 ) -> AsyncIterator[str]:
     """
     Projection-based calibration for a llama.cpp model.
@@ -2520,6 +2525,10 @@ async def calibrate_llamacpp_model(
     Phase 1 (GPU-only): VRAM projection via llama-fit-params → verify with server
     Phase 2 (Speed): Tensor-split optimization for multi-GPU (if Phase 1 succeeds)
     Phase 3 (Hybrid): CPU-offload fallback if GPU-only context < MIN_USEFUL_CONTEXT
+
+    Args:
+        min_kv: Minimum KV quantization level (inherited from prior calibration).
+                Skips KV levels above this (e.g. min_kv="q8_0" skips f16).
 
     Async generator that yields progress messages.
     Final yield format: "__RESULT__:{context}:{ngl}:{mode}"
@@ -2716,9 +2725,12 @@ async def calibrate_llamacpp_model(
     # Force ngl=99 for Phase 1 — the cmd may have a lower ngl from previous
     # hybrid calibration, but Phase 1 always tests all layers on GPU.
     phase1_cmd = re.sub(r'(-ngl\s+)\d+', r'\g<1>99', full_cmd)
-    kv_levels = ["f16", "q8_0", "q4_0"]
+    all_kv_levels = ["f16", "q8_0", "q4_0"]
+    # Skip KV levels above min_kv (inherited from prior calibration)
+    min_kv_idx = all_kv_levels.index(min_kv) if min_kv in all_kv_levels else 0
+    kv_levels = all_kv_levels[min_kv_idx:]
     best_result = 0
-    best_kv = "f16"
+    best_kv = min_kv
     thinking_result: Optional[bool] = None
     optimized_ratios: Optional[list[float]] = None
 
@@ -2730,14 +2742,16 @@ async def calibrate_llamacpp_model(
     # Before running the full physical search, check if f16 can reach native context
     # via projection. If not, skip f16 entirely and go straight to q8_0.
     # This avoids minutes of pointless binary search with f16.
-    f16_projection_cmd = _inject_kv_quant(phase1_cmd, "f16")
-    f16_projected = _project_max_context(f16_projection_cmd, gguf_path, native_context, safety_margin=safety_margin)
-    if f16_projected and f16_projected < native_context:
-        yield (
-            f"F16 projection: {format_number(f16_projected)} < native {format_number(native_context)} "
-            f"— skipping f16, starting with q8_0"
-        )
-        kv_levels = ["q8_0", "q4_0"]  # Skip f16 entirely
+    # Skip if min_kv already excludes f16.
+    if "f16" in kv_levels:
+        f16_projection_cmd = _inject_kv_quant(phase1_cmd, "f16")
+        f16_projected = _project_max_context(f16_projection_cmd, gguf_path, native_context, safety_margin=safety_margin)
+        if f16_projected and f16_projected < native_context:
+            yield (
+                f"F16 projection: {format_number(f16_projected)} < native {format_number(native_context)} "
+                f"— skipping f16, starting with q8_0"
+            )
+            kv_levels = all_kv_levels[all_kv_levels.index("q8_0"):]  # Skip f16 entirely
 
     for kv_level in kv_levels:
         # Skip conditions:
@@ -2968,6 +2982,7 @@ async def calibrate_llamacpp_model(
                     full_cmd, port, speed_target_ctx,
                     native_context, gguf_path, per_gpu_total_mb,
                     safety_margin=safety_margin,
+                    base_kv=best_kv,
                 ):
                     yield msg
         async for msg in _finish_calibration(best_result, 99, "gpu", thinking_result=thinking_result):
