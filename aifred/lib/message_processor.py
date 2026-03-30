@@ -236,7 +236,7 @@ async def _call_engine(
     from .session_storage import load_session
     from .settings import load_settings
     from .config import (
-        DEFAULT_SETTINGS, BACKEND_DEFAULT_MODELS, BACKEND_URLS,
+        DEFAULT_SETTINGS, BACKEND_URLS,
         MAIN_LLM_FALLBACK_CONTEXT,
     )
 
@@ -247,11 +247,9 @@ async def _call_engine(
     temperature = settings.get("temperature", 0.7)
     enable_thinking = settings.get("enable_thinking", False)
 
-    # Get model for the agent
-    backend_models_saved = settings.get("backend_models", {}).get(backend_type, {})
-    backend_models_default = BACKEND_DEFAULT_MODELS.get(backend_type, {})
-    model_key = f"{agent}_model" if agent != "aifred" else "aifred_model"
-    model = backend_models_saved.get(model_key, backend_models_default.get(model_key, ""))
+    # Get effective model for the agent (respects TTS/speed variants)
+    from .config import get_effective_model_from_settings
+    model = get_effective_model_from_settings(agent)
     backend_url = BACKEND_URLS.get(backend_type, "")
 
     if not model:

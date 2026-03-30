@@ -331,7 +331,7 @@ async def generate_session_title(
     from .prompt_loader import load_prompt, get_language
     from .session_storage import update_session_title
     from .settings import load_settings
-    from .config import DEFAULT_SETTINGS, BACKEND_DEFAULT_MODELS, BACKEND_URLS, AUTOMATIK_LLM_NUM_CTX
+    from .config import DEFAULT_SETTINGS, BACKEND_URLS, AUTOMATIK_LLM_NUM_CTX
     from .context_manager import strip_thinking_blocks
     from .logging_utils import log_message
 
@@ -339,13 +339,12 @@ async def generate_session_title(
     backend_type = settings.get("backend_type", DEFAULT_SETTINGS["backend_type"])
     backend_url = BACKEND_URLS.get(backend_type, "")
 
-    # Model: override > saved AIfred model > default
+    # Model: override > effective model from settings (respects TTS/speed variants)
     if model_override:
         model = model_override
     else:
-        saved = settings.get("backend_models", {}).get(backend_type, {})
-        defaults = BACKEND_DEFAULT_MODELS.get(backend_type, {})
-        model = saved.get("aifred_model", defaults.get("aifred_model", ""))
+        from .config import get_effective_model_from_settings
+        model = get_effective_model_from_settings("aifred")
 
     if not model:
         return ""

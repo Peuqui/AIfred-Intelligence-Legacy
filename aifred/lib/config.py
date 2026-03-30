@@ -887,6 +887,53 @@ XTTS_VRAM_MB = 2900  # MB (measured peak 2837 + 63 buffer)
 # Use peak + buffer so LLM context doesn't compete with TTS during generation.
 MOSS_TTS_VRAM_MB = 13700  # MB (measured peak 13609 + 91 buffer)
 
+def get_effective_model_from_settings(agent: str = "aifred") -> str:
+    """Resolve effective model ID from settings.json (no Reflex state needed).
+
+    Same logic as State._effective_model_id but reads from settings file.
+    Use this in API/Message Hub/async contexts without State access.
+
+    Priority: speed variant > TTS variant > base model
+    """
+    from .settings import load_settings
+    settings = load_settings() or {}
+    backend_type = settings.get("backend_type", "llamacpp")
+
+    # Base model
+    saved = settings.get("backend_models", {}).get(backend_type, {})
+    model_key = f"{agent}_model" if agent != "aifred" else "aifred_model"
+    base_id = saved.get(model_key, "")
+    if not base_id:
+        return base_id
+
+    # Speed mode
+    speed_on = settings.get(f"{agent}_speed_mode", False)
+    if speed_on and backend_type == "llamacpp":
+        speed_id = f"{base_id}-speed"
+        from .llamacpp_calibration import parse_llamaswap_config
+        swap_cfg = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
+        if speed_id in swap_cfg:
+            return speed_id
+
+    # TTS variant
+    enable_tts = settings.get("enable_tts", False)
+    tts_engine = settings.get("tts_engine", "")
+    if enable_tts and backend_type == "llamacpp":
+        needs_gpu = False
+        if tts_engine == "xtts" and not settings.get("xtts_force_cpu", False):
+            needs_gpu = True
+        elif tts_engine == "moss":
+            needs_gpu = True
+        if needs_gpu:
+            tts_id = f"{base_id}-tts-{tts_engine}"
+            from .llamacpp_calibration import parse_llamaswap_config
+            swap_cfg = parse_llamaswap_config(Path(LLAMASWAP_CONFIG_PATH))
+            if tts_id in swap_cfg:
+                return tts_id
+
+    return base_id
+
+
 # Docker-Compose paths (for container start/stop)
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 XTTS_DOCKER_COMPOSE_PATH = os.path.join(_PROJECT_ROOT, "docker", "xtts", "docker-compose.yml")
