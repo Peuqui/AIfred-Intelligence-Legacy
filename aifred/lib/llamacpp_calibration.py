@@ -1303,6 +1303,7 @@ async def _physical_context_search(
     skip_balance: bool = False,
     run_thinking_test: bool = False,
     safety_margin: int = LLAMACPP_VRAM_SAFETY_MARGIN,
+    projected_hint: Optional[int] = None,
 ) -> AsyncIterator[str | int | dict]:
     """Fit-params projection + physical binary search for max context.
 
@@ -1310,35 +1311,40 @@ async def _physical_context_search(
     If multi-GPU: detects VRAM asymmetry after first test and adjusts tensor-split
     before binary search (avoids searching with unbalanced split).
     skip_balance: skip layer balance step (when speed-split will follow anyway).
+    projected_hint: if provided, skip fit-params projection and use this value.
 
     Yields: progress strings, metadata dict, final int result.
     Dict: {"gpu_list": [...], "balanced_cmd": str | None}
     """
-    # 1. Fit-params projection (2 calls, ~1s total)
-    # ctx_low must be < native_context for valid rate calculation
-    ctx_low = min(CALIBRATION_MIN_CONTEXT, native_context // 2)
-    try:
-        per_gpu_low = _fit_params_per_gpu_projection(
-            full_cmd, gguf_path, ctx_low, ngl=ngl,
-        )
-        per_gpu_high = _fit_params_per_gpu_projection(
-            full_cmd, gguf_path, native_context, ngl=ngl,
-        )
-        projected, rate = _calculate_max_context_per_gpu(
-            per_gpu_low, per_gpu_high, ctx_low, native_context,
-            safety_margin=safety_margin,
-        )
-        projected = min(projected, native_context)
-        yield (
-            f"Projection: {format_number(rate, 4)} MiB/tok, "
-            f"max ~{format_number(projected)} tokens"
-        )
-    except (RuntimeError, OSError, subprocess.TimeoutExpired):
-        yield "VRAM projection failed"
-        yield 0
-        return
+    # 1. Fit-params projection (2 calls, ~1s total) — skip if hint provided
+    per_gpu_low: dict[str, dict[str, int]] = {}
+    if projected_hint is not None:
+        projected = min(projected_hint, native_context)
+    else:
+        ctx_low = min(CALIBRATION_MIN_CONTEXT, native_context // 2)
+        try:
+            per_gpu_low = _fit_params_per_gpu_projection(
+                full_cmd, gguf_path, ctx_low, ngl=ngl,
+            )
+            per_gpu_high = _fit_params_per_gpu_projection(
+                full_cmd, gguf_path, native_context, ngl=ngl,
+            )
+            projected, rate = _calculate_max_context_per_gpu(
+                per_gpu_low, per_gpu_high, ctx_low, native_context,
+                safety_margin=safety_margin,
+            )
+            projected = min(projected, native_context)
+            yield (
+                f"Projection: {format_number(rate, 4)} MiB/tok, "
+                f"max ~{format_number(projected)} tokens"
+            )
+        except (RuntimeError, OSError, subprocess.TimeoutExpired):
+            yield "VRAM projection failed"
+            yield 0
+            return
 
     # 2. Physical test at projected context
+
     iteration = 0
     ctx_label = "native" if projected == native_context else "projected"
 
@@ -2767,26 +2773,46 @@ async def calibrate_llamacpp_model(
     if is_single_gpu:
         optimized_ratios = _parse_tensor_split_ratios(full_cmd)
 
-    # === Fast KV-level selection ===
-    # Before running the full physical search, check if f16 can reach native context
-    # via projection. If not, skip f16 entirely and go straight to q8_0.
-    # This avoids minutes of pointless binary search with f16.
-    # Skip if min_kv already excludes f16.
+    # === Fast KV-level selection via fit-params projection ===
+    # One projection per KV level before physical tests. If f16 can't reach
+    # native context AND is below the f16-prefer threshold, skip to q8_0.
+    # The projection is reused as hint for the physical search (no double projection).
+    from .config import F16_KV_PREFER_THRESHOLD
+    kv_projections: dict[str, Optional[int]] = {}
     if "f16" in kv_levels:
-        f16_projection_cmd = _inject_kv_quant(phase1_cmd, "f16")
-        f16_projected = _project_max_context(f16_projection_cmd, gguf_path, native_context, safety_margin=safety_margin)
-        if f16_projected and f16_projected < native_context:
-            yield (
-                f"F16 projection: {format_number(f16_projected)} < native {format_number(native_context)} "
-                f"— skipping f16, starting with q8_0"
+        f16_cmd = _inject_kv_quant(phase1_cmd, "f16")
+        ctx_low = min(CALIBRATION_MIN_CONTEXT, native_context // 2)
+        try:
+            per_gpu_low = _fit_params_per_gpu_projection(f16_cmd, gguf_path, ctx_low, ngl=99)
+            per_gpu_high = _fit_params_per_gpu_projection(f16_cmd, gguf_path, native_context, ngl=99)
+            f16_projected, _ = _calculate_max_context_per_gpu(
+                per_gpu_low, per_gpu_high, ctx_low, native_context, safety_margin=safety_margin,
             )
-            kv_levels = all_kv_levels[all_kv_levels.index("q8_0"):]  # Skip f16 entirely
+            f16_projected = min(f16_projected, native_context)
+        except (RuntimeError, OSError, subprocess.TimeoutExpired):
+            f16_projected = None
+        kv_projections["f16"] = f16_projected
+
+        if f16_projected and f16_projected < native_context:
+            if f16_projected >= F16_KV_PREFER_THRESHOLD:
+                yield (
+                    f"F16 projection: {format_number(f16_projected)} "
+                    f"(≥{format_number(F16_KV_PREFER_THRESHOLD)} threshold) "
+                    f"— using f16 (fast, high quality)"
+                )
+            else:
+                yield (
+                    f"F16 projection: {format_number(f16_projected)} < native {format_number(native_context)} "
+                    f"— skipping f16, starting with q8_0"
+                )
+                kv_levels = all_kv_levels[all_kv_levels.index("q8_0"):]
 
     for kv_level in kv_levels:
         # Skip conditions:
-        # - q8_0: skip if f16 already reached native (no gain possible)
+        # - q8_0: skip if f16 already reached ≥256K (prefer f16 quality/speed)
+        #         or if f16 reached native context (no gain possible)
         # - q4_0: skip unless q8_0 < MIN_USEFUL (last resort before hybrid)
-        if kv_level == "q8_0" and best_result >= native_context:
+        if kv_level == "q8_0" and (best_result >= native_context or best_result >= F16_KV_PREFER_THRESHOLD):
             break
         if kv_level == "q4_0" and best_result >= MIN_USEFUL_CONTEXT_TOKENS:
             break
@@ -2798,11 +2824,14 @@ async def calibrate_llamacpp_model(
         skip_speed = False
         # Run thinking test on first KV iteration (piggyback on first successful test)
         run_thinking = thinking_result is None
+        # Reuse projection from pre-check to avoid redundant fit-params calls
+        hint = kv_projections.get(kv_level)
         async for item in _physical_context_search(
             test_cmd, gguf_path, native_context, ngl=99, port=port,
             skip_balance=is_single_gpu,
             run_thinking_test=run_thinking,
             safety_margin=safety_margin,
+            projected_hint=hint,
         ):
             if isinstance(item, int):
                 result = item
