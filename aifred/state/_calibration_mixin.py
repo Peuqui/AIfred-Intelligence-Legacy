@@ -265,6 +265,16 @@ class CalibrationMixin(rx.State, mixin=True):
                 base_url=self.backend_url  # type: ignore[attr-defined]
             )
 
+            # Step 0: Stop any TTS containers to free VRAM for clean baseline
+            from ..lib.process_utils import stop_xtts_container, stop_moss_container
+            if self.enable_tts:  # type: ignore[attr-defined]
+                self.add_debug("🔊 Stopping TTS containers for clean VRAM baseline...")  # type: ignore[attr-defined]
+                yield
+                stop_xtts_container()
+                stop_moss_container()
+                self.add_debug("   TTS containers stopped")  # type: ignore[attr-defined]
+                yield
+
             # Step 1: Stop llama-swap system service to free VRAM
             self.add_debug("🛑 Stopping llama-swap service...")  # type: ignore[attr-defined]
             yield
