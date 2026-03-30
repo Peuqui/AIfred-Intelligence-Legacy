@@ -808,6 +808,44 @@ def _calculate_max_context_per_gpu(
     return max_ctx, combined_rate
 
 
+def _project_max_context(
+    full_cmd: str, gguf_path: Path, native_context: int,
+    ngl: int = 99, safety_margin: int = 0,
+) -> Optional[int]:
+    """Quick projection: can this model fit native context in VRAM?
+
+    Uses llama-fit-params (~0.3s) to project VRAM usage at native context.
+    Returns projected max context (based on MB/token ratio), or None on error.
+    """
+    try:
+        projections = _fit_params_per_gpu_projection(full_cmd, gguf_path, native_context, ngl)
+        # Check if ALL GPUs have enough free VRAM
+        all_fit = all(
+            gpu["free"] >= safety_margin for gpu in projections.values()
+        )
+        if all_fit:
+            return native_context
+
+        # Calculate max context from the tightest GPU
+        # Find the MiB/token ratio from the projection
+        min_ctx_cmd = _inject_kv_quant(full_cmd, "f16")
+        low_projections = _fit_params_per_gpu_projection(min_ctx_cmd, gguf_path, 2048, ngl)
+        # Estimate ratio from difference
+        for gpu_id in projections:
+            if gpu_id in low_projections:
+                used_high = projections[gpu_id]["used"]
+                used_low = low_projections[gpu_id]["used"]
+                ctx_diff = native_context - 2048
+                if ctx_diff > 0 and used_high > used_low:
+                    mb_per_tok = (used_high - used_low) / ctx_diff
+                    free_at_low = low_projections[gpu_id]["free"]
+                    max_extra_tokens = int((free_at_low - safety_margin) / mb_per_tok) if mb_per_tok > 0 else 0
+                    return min(2048 + max(0, max_extra_tokens), native_context)
+        return None
+    except (RuntimeError, subprocess.TimeoutExpired, OSError):
+        return None
+
+
 def _fit_params_per_gpu_projection(
     full_cmd: str, gguf_path: Path, context: int, ngl: int,
 ) -> dict[str, dict[str, int]]:
@@ -2762,6 +2800,19 @@ async def calibrate_llamacpp_model(
     # For single-GPU: pre-set tensor-split ratios for config write-back
     if is_single_gpu:
         optimized_ratios = _parse_tensor_split_ratios(full_cmd)
+
+    # === Fast KV-level selection ===
+    # Before running the full physical search, check if f16 can reach native context
+    # via projection. If not, skip f16 entirely and go straight to q8_0.
+    # This avoids minutes of pointless binary search with f16.
+    f16_projection_cmd = _inject_kv_quant(phase1_cmd, "f16")
+    f16_projected = _project_max_context(f16_projection_cmd, gguf_path, native_context, safety_margin=safety_margin)
+    if f16_projected and f16_projected < native_context:
+        yield (
+            f"F16 projection: {format_number(f16_projected)} < native {format_number(native_context)} "
+            f"— skipping f16, starting with q8_0"
+        )
+        kv_levels = ["q8_0", "q4_0"]  # Skip f16 entirely
 
     for kv_level in kv_levels:
         # Skip conditions:
