@@ -1203,7 +1203,9 @@ class ChatMixin(rx.State, mixin=True):
             # Only runs on first Q&A pair, skipped if title already exists
             # Skip if no AI response was generated (e.g. RPC connection error)
             if ai_text:
-                async for _ in self._generate_session_title():  # type: ignore[attr-defined]
+                # Use effective model ID to avoid llama-swap model swap
+                effective_id = self._effective_model_id("aifred")  # type: ignore[attr-defined]
+                async for _ in self._generate_session_title(title_model_override=effective_id):  # type: ignore[attr-defined]
                     yield  # Forward UI updates from title generation
 
             # Auto-Save: Session nach jeder Chat-Nachricht speichern

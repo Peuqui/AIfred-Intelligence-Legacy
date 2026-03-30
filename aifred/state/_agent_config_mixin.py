@@ -408,17 +408,18 @@ class AgentConfigMixin(rx.State, mixin=True):
             needs_gpu = False
             if tts_engine == "xtts" and not self.xtts_force_cpu:  # type: ignore[attr-defined]
                 needs_gpu = True
-            elif tts_engine == "moss" and getattr(self, "moss_tts_device", "") == "cuda":
-                needs_gpu = True
+            elif tts_engine == "moss":
+                needs_gpu = True  # MOSS always uses GPU
 
             if needs_gpu:
                 from ..lib.llamacpp_calibration import parse_llamaswap_config
                 from ..lib.config import LLAMASWAP_CONFIG_PATH
                 tts_variant = f"{base_id}-tts-{tts_engine}"
-                # Only use TTS variant if it exists in llama-swap config
                 swap_cfg = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
                 if tts_variant in swap_cfg:
                     return tts_variant
+                from ..lib.logging_utils import log_message
+                log_message(f"⚠️ _effective_model_id: TTS variant {tts_variant} NOT in config (have: {list(swap_cfg.keys())})")
 
         return base_id
 

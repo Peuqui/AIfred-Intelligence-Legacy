@@ -304,6 +304,19 @@ def parse_sampling_from_cmd(cmd: str) -> Dict[str, float]:
     return result
 
 
+def _ensure_in_group(config: dict, model_id: str, group_name: str = "main") -> None:
+    """Ensure a model is in the specified llama-swap group.
+
+    Adds the model to the group's members list if not already present.
+    Creates the group if it doesn't exist.
+    """
+    groups = config.setdefault("groups", {})
+    group = groups.setdefault(group_name, {"exclusive": True, "swap": True, "members": []})
+    members = group.setdefault("members", [])
+    if model_id not in members:
+        members.append(model_id)
+
+
 def _read_llamaswap_yaml(config_path: Path) -> dict:
     """Read llama-swap config as Python dict."""
     with open(config_path, 'r', encoding='utf-8') as f:
@@ -1766,6 +1779,7 @@ def add_llamaswap_speed_variant(
                 new_models[speed_model_id] = speed_entry
         config["models"] = new_models
 
+    _ensure_in_group(config, speed_model_id)
     _write_llamaswap_yaml(config_path, config)
     logger.info(f"{'Updated' if already_exists else 'Added'} speed variant: {speed_model_id}")
     return True
@@ -1823,6 +1837,7 @@ def add_llamaswap_tts_variant(
                 new_models[tts_model_id] = tts_entry
         config["models"] = new_models
 
+    _ensure_in_group(config, tts_model_id)
     _write_llamaswap_yaml(config_path, config)
     logger.info(f"{'Updated' if already_exists else 'Added'} TTS variant: {tts_model_id}")
     return True
