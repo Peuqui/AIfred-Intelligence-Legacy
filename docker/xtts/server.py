@@ -63,13 +63,13 @@ _speaker_names = None  # Just the names (loaded without model for /voices endpoi
 _custom_voices = {}  # Custom cloned voices
 _device = None  # "cuda" or "cpu" - set on model load
 
-# Auto-restart configuration (like Ollama's KEEP_ALIVE)
-# After KEEP_ALIVE_MINUTES of inactivity, the server exits and Docker restarts it
-# This fully releases CUDA context memory (~198MB) allowing GPU to enter P8 state
-# Set to 0 to disable auto-restart
+# Auto-unload configuration (like Ollama's KEEP_ALIVE)
+# After KEEP_ALIVE_MINUTES of inactivity, the model is unloaded from VRAM
+# Container stays alive and responsive — model lazy-loads on next TTS request
+# Set to 0 to disable auto-unload
 KEEP_ALIVE_MINUTES = int(os.environ.get("XTTS_KEEP_ALIVE", "5"))
 _last_request_time = None  # Timestamp of last TTS request
-_restart_timer = None  # Background timer for auto-restart
+_restart_timer = None  # Background timer for auto-unload
 _active_requests = 0  # Counter for in-flight requests
 
 # Paths
@@ -1391,44 +1391,48 @@ def _deep_cuda_cleanup():
 
 
 def _auto_restart_server():
-    """Background task: Exit server after KEEP_ALIVE_MINUTES of inactivity.
+    """Background task: Unload model after KEEP_ALIVE_MINUTES of inactivity.
 
-    Docker's restart policy will bring the container back up with a fresh
-    Python process, fully releasing CUDA context memory (~198MB).
-    This allows the GPU to enter P8 power state.
+    Instead of killing the container (which caused zombie Gunicorn issues),
+    we just unload the model from VRAM. The container stays alive and
+    responsive to health checks. Model will lazy-load on next TTS request.
 
-    NOTE: Since we run under Gunicorn, sys.exit(0) only kills the worker process.
-    Gunicorn would just spawn a new worker. We need to signal the Gunicorn master
-    (our parent process) to terminate the entire container.
+    This is the same pattern as Ollama's keep_alive behavior.
     """
-    global _active_requests
+    global _active_requests, _synthesizer, _config, _speaker_embeddings
+    global _custom_voices, _device, _restart_timer
 
     if _synthesizer is None:
-        logger.debug("Auto-restart: Model not loaded, skipping restart")
+        logger.debug("Auto-unload: Model not loaded, skipping")
         return
 
-    # Don't restart if requests are in-flight
+    # Don't unload if requests are in-flight
     if _active_requests > 0:
-        logger.info(f"⏰ Auto-restart delayed: {_active_requests} request(s) in progress")
-        # Retry in 30 seconds
+        logger.info(f"⏰ Auto-unload delayed: {_active_requests} request(s) in progress")
         import threading
         retry_timer = threading.Timer(30, _auto_restart_server)
         retry_timer.daemon = True
         retry_timer.start()
         return
 
-    logger.info(f"⏰ Auto-restart after {KEEP_ALIVE_MINUTES} min inactivity - freeing VRAM completely...")
-    logger.info("🔄 Signaling Gunicorn master to shutdown container...")
+    logger.info(f"⏰ Auto-unload after {KEEP_ALIVE_MINUTES} min inactivity - freeing VRAM...")
 
-    # Give logs time to flush
-    import time
-    time.sleep(0.5)
+    # Cancel timer
+    if _restart_timer is not None:
+        _restart_timer.cancel()
+        _restart_timer = None
 
-    # Signal Gunicorn master (parent process) to terminate
-    # This properly shuts down the entire container instead of just the worker
-    import os
-    import signal
-    os.kill(os.getppid(), signal.SIGTERM)
+    # Unload model (same as /unload endpoint)
+    freed_device = _device or "unknown"
+    _synthesizer = None
+    _config = None
+    _speaker_embeddings = None
+    _custom_voices = {}
+    _device = None
+
+    _deep_cuda_cleanup()
+
+    logger.info(f"✅ Model unloaded from {freed_device} - container stays alive")
 
 
 def _reset_restart_timer():
@@ -1811,13 +1815,13 @@ if EAGER_LOAD:
     get_synthesizer()
     logger.info("✅ Model loaded and ready")
 
-# Start auto-shutdown timer at container startup
-# This ensures the container shuts down even if no TTS requests are made
+# Start auto-unload timer at container startup
+# Unloads model from VRAM after inactivity (container stays alive)
 if KEEP_ALIVE_MINUTES > 0:
-    logger.info(f"⏰ Auto-shutdown timer started: {KEEP_ALIVE_MINUTES} min")
+    logger.info(f"⏰ Auto-unload timer started: {KEEP_ALIVE_MINUTES} min")
     _reset_restart_timer()
 else:
-    logger.info("⏰ Auto-shutdown disabled (XTTS_KEEP_ALIVE=0)")
+    logger.info("⏰ Auto-unload disabled (XTTS_KEEP_ALIVE=0)")
 
 
 if __name__ == "__main__":

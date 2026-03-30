@@ -229,6 +229,44 @@ def set_xtts_cpu_mode(force_cpu: bool) -> tuple[bool, str]:
     return False, message
 
 
+def _detect_fastest_gpu(compose_dir: str) -> None:
+    """Detect fastest GPU and write FASTEST_GPU_ID to .env in compose_dir.
+
+    Picks the GPU with the most VRAM. Writes .env so docker-compose
+    can use ${FASTEST_GPU_ID} for device_ids.
+    """
+    from pathlib import Path
+    try:
+        result = subprocess.run(
+            ["nvidia-smi", "--query-gpu=index,memory.total", "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if result.returncode != 0:
+            return
+        # Parse: "0, 24576\n1, 49152\n..."  → pick highest VRAM
+        best_id, best_vram = "0", 0
+        for line in result.stdout.strip().split("\n"):
+            parts = line.split(",")
+            if len(parts) == 2:
+                gpu_id = parts[0].strip()
+                vram = int(parts[1].strip())
+                if vram > best_vram:
+                    best_id, best_vram = gpu_id, vram
+
+        env_path = Path(compose_dir) / ".env"
+        # Read existing .env content (preserve other vars)
+        existing = {}
+        if env_path.exists():
+            for line in env_path.read_text().strip().split("\n"):
+                if "=" in line and not line.startswith("#"):
+                    k, v = line.split("=", 1)
+                    existing[k.strip()] = v.strip()
+        existing["FASTEST_GPU_ID"] = best_id
+        env_path.write_text("\n".join(f"{k}={v}" for k, v in existing.items()) + "\n")
+    except (OSError, subprocess.TimeoutExpired):
+        pass  # nvidia-smi not available, keep defaults
+
+
 def _docker_compose_action(
     compose_file: str,
     action: str,
@@ -250,6 +288,10 @@ def _docker_compose_action(
     compose_path = Path(compose_file)
     if not compose_path.exists():
         return False, f"docker-compose.yml not found: {compose_file}"
+
+    # Before starting: detect fastest GPU and write .env
+    if action == "up":
+        _detect_fastest_gpu(str(compose_path.parent))
 
     cmd = ["docker", "compose", "-f", str(compose_file)]
     if action == "up":
