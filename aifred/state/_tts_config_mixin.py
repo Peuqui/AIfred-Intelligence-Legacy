@@ -261,9 +261,10 @@ class TTSConfigMixin(rx.State, mixin=True):
             self._save_agent_voices_for_engine(old_key)
             self._save_tts_toggles_for_engine(old_key)
 
-        # Enable TTS + set engine key, update UI immediately
+        # Enable TTS + set engine key, save immediately (before container ops that may fail)
         self.enable_tts = True
         self.tts_engine = key
+        self._save_settings()  # type: ignore[attr-defined]
         self.add_debug(f"🔊 TTS Engine: {key}")  # type: ignore[attr-defined]
         yield
 
@@ -281,6 +282,14 @@ class TTSConfigMixin(rx.State, mixin=True):
                 stop_moss_container()
                 self.moss_tts_device = ""
                 self.add_debug("🔊 MOSS-TTS container stopped (engine switch)")  # type: ignore[attr-defined]
+                yield
+
+        # Free VRAM before starting GPU-hungry TTS (XTTS/MOSS need GPU space)
+        if key in ("xtts", "moss"):
+            from ..lib.process_utils import unload_all_gpu_models
+            actions = unload_all_gpu_models(self.backend_type)  # type: ignore[attr-defined]
+            if actions:
+                self.add_debug(f"🔊 VRAM freed: {', '.join(actions)}")  # type: ignore[attr-defined]
                 yield
 
         # Start NEW Docker TTS container
@@ -304,6 +313,15 @@ class TTSConfigMixin(rx.State, mixin=True):
                 self.add_debug(f"✅ {msg}")  # type: ignore[attr-defined]
             else:
                 self.add_debug(f"⚠️ {msg}")  # type: ignore[attr-defined]
+
+        # Restart LLM backend (was stopped for VRAM cleanup)
+        if key in ("xtts", "moss"):
+            if self.backend_type == "llamacpp":  # type: ignore[attr-defined]
+                from ..lib.process_utils import start_llama_swap
+                if start_llama_swap():
+                    self.add_debug("🔄 llama-swap restarted")  # type: ignore[attr-defined]
+            # Ollama/vLLM/TabbyAPI restart automatically on next request
+            yield
 
         # Restore per-engine settings for new engine
         self._restore_agent_voices_for_engine(key)

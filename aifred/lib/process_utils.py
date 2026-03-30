@@ -304,6 +304,102 @@ def _docker_compose_action(
         return False, f"docker compose {action} error: {e}"
 
 
+def stop_llama_swap() -> bool:
+    """Stop llama-swap service to free all LLM VRAM."""
+    try:
+        subprocess.run(["systemctl", "stop", "llama-swap"], check=True, timeout=15)
+        log_message("llama-swap stopped")
+        return True
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        return False
+
+
+def start_llama_swap() -> bool:
+    """Start llama-swap service."""
+    try:
+        subprocess.run(["systemctl", "start", "llama-swap"], check=True, timeout=15)
+        log_message("llama-swap started")
+        return True
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        return False
+
+
+def restart_llama_swap() -> bool:
+    """Restart llama-swap service (triggers autoscan for new models)."""
+    try:
+        subprocess.run(["systemctl", "restart", "llama-swap"], check=True, timeout=15)
+        log_message("llama-swap restarted")
+        return True
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        return False
+
+
+def unload_all_gpu_models(backend_type: str = "llamacpp") -> list[str]:
+    """Unload all GPU-resident models (LLM + TTS) to free VRAM.
+
+    Central function — single source of truth for GPU cleanup.
+    Used by TTS backend switches, calibration, and any other VRAM-freeing needs.
+
+    Args:
+        backend_type: Active LLM backend ("llamacpp", "ollama", "vllm", "tabbyapi")
+
+    Returns list of actions taken.
+    """
+    actions = []
+
+    # 1. Stop LLM backend
+    if backend_type == "llamacpp":
+        if stop_llama_swap():
+            actions.append("llama-swap stopped")
+    elif backend_type == "ollama":
+        # Ollama: unload via API (keep service running)
+        import requests
+        try:
+            # Generate with keep_alive=0 unloads the model
+            requests.post(
+                "http://localhost:11434/api/generate",
+                json={"model": "", "keep_alive": 0},
+                timeout=10,
+            )
+            actions.append("Ollama models unloaded")
+        except Exception:
+            pass
+    elif backend_type == "vllm":
+        # vLLM: stop via process manager
+        try:
+            from .vllm_manager import vllm_manager
+            import asyncio
+            asyncio.get_event_loop().run_until_complete(vllm_manager.stop())
+            actions.append("vLLM stopped")
+        except Exception:
+            pass
+    elif backend_type == "tabbyapi":
+        # TabbyAPI: stop service
+        try:
+            subprocess.run(["systemctl", "stop", "tabbyapi"], timeout=15, check=False)
+            actions.append("TabbyAPI stopped")
+        except Exception:
+            pass
+
+    # 2. Stop all TTS containers
+    try:
+        from .config import XTTS_DOCKER_COMPOSE_PATH
+        _docker_compose_action(XTTS_DOCKER_COMPOSE_PATH, "down", "XTTS")
+        actions.append("XTTS stopped")
+    except Exception:
+        pass
+
+    try:
+        from .config import MOSS_TTS_DOCKER_COMPOSE_PATH
+        _docker_compose_action(MOSS_TTS_DOCKER_COMPOSE_PATH, "down", "MOSS-TTS")
+        actions.append("MOSS-TTS stopped")
+    except Exception:
+        pass
+
+    log_message(f"GPU cleanup: {', '.join(actions) if actions else 'nothing to unload'}")
+    return actions
+
+
 def start_xtts_container() -> tuple[bool, str]:
     """Start the XTTS Docker container."""
     from .config import XTTS_DOCKER_COMPOSE_PATH

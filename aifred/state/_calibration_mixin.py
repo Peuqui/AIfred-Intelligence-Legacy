@@ -296,12 +296,10 @@ class CalibrationMixin(rx.State, mixin=True):
             self.add_debug("🛑 Stopping llama-swap service...")  # type: ignore[attr-defined]
             yield
             try:
-                subprocess.run(
-                    ["systemctl", "stop", "llama-swap"],
-                    check=True, timeout=15,
-                )
+                from ..lib.process_utils import stop_llama_swap
+                stop_llama_swap()
                 llama_swap_stopped = True
-                self.add_debug("   llama-swap stopped via systemctl")  # type: ignore[attr-defined]
+                self.add_debug("   llama-swap stopped")  # type: ignore[attr-defined]
             except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
                 self.add_debug(f"⚠️ Could not stop llama-swap: {e}")  # type: ignore[attr-defined]
                 self.add_debug("   Continuing anyway (VRAM may be limited)")  # type: ignore[attr-defined]
@@ -511,14 +509,11 @@ class CalibrationMixin(rx.State, mixin=True):
 
             # Step 6: Restart llama-swap
             self.add_debug("🔄 Restarting llama-swap service...")  # type: ignore[attr-defined]
-            try:
-                subprocess.run(
-                    ["systemctl", "start", "llama-swap"],
-                    check=True, timeout=15,
-                )
+            from ..lib.process_utils import start_llama_swap
+            if start_llama_swap():
                 llama_swap_stopped = False
                 self.add_debug("   llama-swap started")  # type: ignore[attr-defined]
-            except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+            else:
                 self.add_debug("⚠️ Could not restart llama-swap")  # type: ignore[attr-defined]
             yield
 
@@ -559,13 +554,8 @@ class CalibrationMixin(rx.State, mixin=True):
         finally:
             # Always restart llama-swap if we stopped it
             if llama_swap_stopped:
-                try:
-                    subprocess.run(
-                        ["systemctl", "start", "llama-swap"],
-                        timeout=15,
-                    )
-                except Exception:
-                    pass
+                from ..lib.process_utils import start_llama_swap
+                start_llama_swap()
             self.is_calibrating = False
             yield
 
@@ -830,18 +820,11 @@ class CalibrationMixin(rx.State, mixin=True):
                 yield  # Update UI
             elif self.backend_type == "llamacpp":  # type: ignore[attr-defined]
                 # llama-swap: restart via systemctl (system service)
-                import subprocess as _sp
-
-                result = _sp.run(
-                    ["systemctl", "restart", "llama-swap"],
-                    capture_output=True,
-                )
-
-                if result.returncode == 0:
-                    self.add_debug("✅ llama-swap service restarted (autoscan running...)")  # type: ignore[attr-defined]
+                from ..lib.process_utils import restart_llama_swap
+                if restart_llama_swap():
+                    self.add_debug("✅ llama-swap restarted (autoscan running...)")  # type: ignore[attr-defined]
                 else:
-                    err = result.stderr.decode(errors='replace').strip()
-                    self.add_debug(f"⚠️ llama-swap restart failed: {err or 'unknown error'}")  # type: ignore[attr-defined]
+                    self.add_debug("⚠️ llama-swap restart failed")  # type: ignore[attr-defined]
                 yield
 
                 # Wait for llama-swap to be ready (ExecStartPre/autoscan may take a few seconds)

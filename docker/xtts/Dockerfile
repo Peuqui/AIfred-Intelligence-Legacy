@@ -31,4 +31,5 @@ EXPOSE 5051
 
 # Run with gunicorn for production stability
 # No timeout (0): TTS generation can take arbitrarily long for large texts
-CMD ["gunicorn", "--bind", "0.0.0.0:5051", "--timeout", "0", "--workers", "1", "server:app"]
+# 1 worker + 2 threads: single model in VRAM, but health checks work during generation
+CMD ["gunicorn", "--bind", "0.0.0.0:5051", "--timeout", "0", "--workers", "1", "--threads", "2", "server:app"]

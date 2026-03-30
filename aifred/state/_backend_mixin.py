@@ -875,9 +875,9 @@ class BackendMixin(rx.State, mixin=True):
                     if not models_dict:
                         self.add_debug("⚠️ llama-swap not reachable, starting service...")  # type: ignore[attr-defined, has-type]
                         try:
-                            import subprocess as _sp
                             import asyncio
-                            _sp.run(["systemctl", "start", "llama-swap"], check=True, timeout=15)
+                            from ..lib.process_utils import start_llama_swap
+                            start_llama_swap()
                             await asyncio.sleep(2.0)
                             models_dict = discover_models(
                                 self.backend_type,
@@ -1320,12 +1320,11 @@ class BackendMixin(rx.State, mixin=True):
 
         elif old_backend == "llamacpp":
             self.add_debug("🛑 Stopping llama-swap service...")  # type: ignore[attr-defined, has-type]
-            try:
-                import subprocess as _sp
-                _sp.run(["systemctl", "stop", "llama-swap"], check=True, timeout=15)
-                self.add_debug("✅ llama-swap service stopped")  # type: ignore[attr-defined, has-type]
-            except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
-                self.add_debug(f"⚠️ Could not stop llama-swap: {e}")  # type: ignore[attr-defined, has-type]
+            from ..lib.process_utils import stop_llama_swap
+            if stop_llama_swap():
+                self.add_debug("✅ llama-swap stopped")  # type: ignore[attr-defined, has-type]
+            else:
+                self.add_debug("⚠️ Could not stop llama-swap")  # type: ignore[attr-defined, has-type]
 
     # ================================================================
     # BACKEND SWITCHING

@@ -2,6 +2,7 @@ FROM python:3.12-slim
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
     ffmpeg \
     git \
     libsndfile1 \
@@ -31,4 +32,5 @@ EXPOSE 5055
 
 # Run with gunicorn for production stability
 # No timeout (0): TTS generation can take arbitrarily long for large bubbles
-CMD ["gunicorn", "--bind", "0.0.0.0:5055", "--timeout", "0", "--workers", "1", "server:app"]
+# 1 worker + 2 threads: single model in VRAM, but health checks work during generation
+CMD ["gunicorn", "--bind", "0.0.0.0:5055", "--timeout", "0", "--workers", "1", "--threads", "2", "server:app"]
