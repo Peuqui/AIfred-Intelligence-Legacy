@@ -378,17 +378,48 @@ class AgentConfigMixin(rx.State, mixin=True):
     # ================================================================
 
     def _effective_model_id(self, agent: str) -> str:
-        """Return model ID with -speed suffix when speed mode is active.
+        """Return model ID with variant suffix for the current configuration.
 
-        This is the SINGLE SOURCE OF TRUTH for speed-suffix resolution.
+        This is the SINGLE SOURCE OF TRUTH for model variant resolution.
         The *_model_id state vars always contain the base ID.
         All code that sends model IDs to the backend must use this method.
+
+        Priority:
+        1. Speed mode → base_id-speed
+        2. TTS on GPU (llamacpp) → base_id-tts-{engine}
+        3. Otherwise → base_id
         """
         base_id: str = getattr(self, f"{agent}_model_id")
+        if not base_id:
+            return base_id
+
+        # Speed mode takes priority (already has reduced context baked in)
         speed_on: bool = getattr(self, f"{agent}_speed_mode")
         has_speed: bool = getattr(self, f"{agent}_has_speed_variant")
-        if speed_on and has_speed and base_id:
+        if speed_on and has_speed:
             return f"{base_id}-speed"
+
+        # TTS on GPU: use TTS-calibrated variant (reduced -c for VRAM sharing)
+        if (
+            self.backend_type == "llamacpp"  # type: ignore[attr-defined]
+            and self.enable_tts  # type: ignore[attr-defined]
+        ):
+            tts_engine = self.tts_engine  # type: ignore[attr-defined]
+            needs_gpu = False
+            if tts_engine == "xtts" and not self.xtts_force_cpu:  # type: ignore[attr-defined]
+                needs_gpu = True
+            elif tts_engine == "moss" and getattr(self, "moss_tts_device", "") == "cuda":
+                needs_gpu = True
+
+            if needs_gpu:
+                from ..lib.llamacpp_calibration import parse_llamaswap_config
+                from ..lib.config import LLAMASWAP_CONFIG_PATH
+                tts_variant = f"{base_id}-tts-{tts_engine}"
+                # Only use TTS variant if it exists in llama-swap config
+                swap_cfg = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
+                if tts_variant in swap_cfg:
+                    return tts_variant
+
         return base_id
 
     # ================================================================

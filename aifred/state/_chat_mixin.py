@@ -421,16 +421,10 @@ class ChatMixin(rx.State, mixin=True):
         """
         from ..lib.llm_engine import call_llm
 
-        # Determine effective vision model: use speed variant when toggle is on
-        effective_vision_id = self.vision_model_id  # type: ignore[attr-defined]
-        if (
-            self.backend_type == "llamacpp"
-            and self.vision_model_id  # type: ignore[attr-defined]
-            and self.vision_speed_mode  # type: ignore[attr-defined]
-            and self.vision_has_speed_variant  # type: ignore[attr-defined]
-        ):
-            effective_vision_id = f"{self.vision_model_id}-speed"  # type: ignore[attr-defined]
-            self.add_debug(f"⚡ VL Speed: {effective_vision_id}")  # type: ignore[attr-defined]
+        # Determine effective vision model (speed/TTS variants resolved centrally)
+        effective_vision_id = self._effective_model_id("vision")  # type: ignore[attr-defined]
+        if effective_vision_id != self.vision_model_id:  # type: ignore[attr-defined]
+            self.add_debug(f"⚡ VL variant: {effective_vision_id}")  # type: ignore[attr-defined]
             yield
 
         self._set_current_agent("aifred")
