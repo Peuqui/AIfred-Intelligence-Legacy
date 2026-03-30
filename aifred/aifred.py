@@ -760,7 +760,7 @@ console.log('✂️ Crop handler loaded');
                             rx.icon(
                                 "users",
                                 size=18,
-                                color=COLORS["text_secondary"],
+                                color="#d98030",
                                 cursor="pointer",
                                 on_click=AIState.open_agent_editor,
                                 style={

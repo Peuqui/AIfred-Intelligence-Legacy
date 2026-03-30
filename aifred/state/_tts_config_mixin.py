@@ -106,33 +106,58 @@ class TTSConfigMixin(rx.State, mixin=True):
         lang = self.ui_language if self.ui_language != "auto" else "de"  # type: ignore[attr-defined]
         return tts_key_to_label(self.tts_engine, lang=lang) if self.enable_tts else tts_key_to_label("off", lang=lang)
 
-    # ── Agent Editor TTS Computed Vars ───────────────────────────
-    # Used by the Agent Editor modal to show/edit TTS settings
-    # for whichever agent is currently being edited.
+    # ── Agent Editor TTS State ───────────────────────────────────
+    # The editor lets you configure voices per backend per agent.
+    # editor_tts_engine selects which backend you're configuring.
+    # _editor_tts_settings holds the loaded settings for that agent+engine.
+    editor_tts_engine: str = "xtts"
+    _editor_tts_settings: Dict[str, Any] = {}  # {"voice": ..., "speed": ..., "pitch": ..., "enabled": ...}
 
-    @rx.var(deps=["editor_agent_id", "tts_agent_voices"], auto_deps=False)
+    @rx.var(deps=["ui_language", "editor_tts_engine"], auto_deps=False)
+    def editor_tts_engine_label(self) -> str:
+        """Translated label for the currently selected editor TTS engine."""
+        from ..lib.i18n import tts_key_to_label
+        lang = self.ui_language if self.ui_language != "auto" else "de"  # type: ignore[attr-defined]
+        return tts_key_to_label(self.editor_tts_engine, lang=lang)
+
+    @rx.var(deps=["editor_tts_engine", "xtts_voices_cache"], auto_deps=False)
+    def editor_tts_available_voices(self) -> List[str]:
+        """Available voices for the editor's selected TTS engine."""
+        from ..lib.config import EDGE_TTS_VOICES, ESPEAK_VOICES, PIPER_VOICES
+        engine = self.editor_tts_engine
+        if engine == "xtts":
+            if self.xtts_voices_cache:
+                return self.xtts_voices_cache
+            from ..lib.config import XTTS_VOICES_FALLBACK, sort_voices_custom_first
+            return sort_voices_custom_first(list(XTTS_VOICES_FALLBACK.keys()))
+        elif engine == "moss":
+            from ..lib.config import get_moss_voices, MOSS_TTS_VOICES_FALLBACK
+            voices = get_moss_voices()
+            return sorted(list((voices or MOSS_TTS_VOICES_FALLBACK).keys()))
+        elif engine == "dashscope":
+            from ..lib.config import DASHSCOPE_VOICES, sort_voices_custom_first
+            return sort_voices_custom_first(list(DASHSCOPE_VOICES.keys()))
+        elif engine == "piper":
+            return sorted(list(PIPER_VOICES.keys()))
+        elif engine == "espeak":
+            return sorted(list(ESPEAK_VOICES.keys()))
+        return sorted(list(EDGE_TTS_VOICES.keys()))
+
+    @rx.var(deps=["_editor_tts_settings"], auto_deps=False)
     def editor_agent_tts_voice(self) -> str:
-        """Current editor agent's TTS voice."""
-        agent_id = self.editor_agent_id  # type: ignore[attr-defined]
-        return str(self.tts_agent_voices.get(agent_id, {}).get("voice", ""))
+        return str(self._editor_tts_settings.get("voice", ""))
 
-    @rx.var(deps=["editor_agent_id", "tts_agent_voices"], auto_deps=False)
+    @rx.var(deps=["_editor_tts_settings"], auto_deps=False)
     def editor_agent_tts_speed(self) -> str:
-        """Current editor agent's TTS speed."""
-        agent_id = self.editor_agent_id  # type: ignore[attr-defined]
-        return str(self.tts_agent_voices.get(agent_id, {}).get("speed", "1.0x"))
+        return str(self._editor_tts_settings.get("speed", "1.0x"))
 
-    @rx.var(deps=["editor_agent_id", "tts_agent_voices"], auto_deps=False)
+    @rx.var(deps=["_editor_tts_settings"], auto_deps=False)
     def editor_agent_tts_pitch(self) -> str:
-        """Current editor agent's TTS pitch."""
-        agent_id = self.editor_agent_id  # type: ignore[attr-defined]
-        return str(self.tts_agent_voices.get(agent_id, {}).get("pitch", "1.0"))
+        return str(self._editor_tts_settings.get("pitch", "1.0"))
 
-    @rx.var(deps=["editor_agent_id", "tts_agent_voices"], auto_deps=False)
+    @rx.var(deps=["_editor_tts_settings"], auto_deps=False)
     def editor_agent_tts_enabled(self) -> bool:
-        """Current editor agent's TTS enabled state."""
-        agent_id = self.editor_agent_id  # type: ignore[attr-defined]
-        return bool(self.tts_agent_voices.get(agent_id, {}).get("enabled", True))
+        return bool(self._editor_tts_settings.get("enabled", True))
 
     # ── TTS Toggle / Engine Selection ─────────────────────────────
 
@@ -432,23 +457,90 @@ class TTSConfigMixin(rx.State, mixin=True):
             self.add_debug(f"🔊 {agent.capitalize()} TTS: {status}")  # type: ignore[attr-defined]
             self._save_settings()  # type: ignore[attr-defined]
 
-    # Agent Editor TTS handlers — operate on the currently edited agent
+    # ── Agent Editor TTS Handlers ────────────────────────────────
+
+    def _load_editor_tts_settings(self) -> None:
+        """Load TTS settings for the current editor agent + editor engine."""
+        from ..lib.settings import load_settings
+        from ..lib.config import TTS_AGENT_VOICE_DEFAULTS
+
+        agent_id = self.editor_agent_id  # type: ignore[attr-defined]
+        engine = self.editor_tts_engine
+        if not agent_id:
+            self._editor_tts_settings = {}
+            return
+
+        # If editor engine matches the active engine, read from live state
+        if engine == self.tts_engine:
+            self._editor_tts_settings = dict(
+                self.tts_agent_voices.get(agent_id, {"voice": "", "speed": "1.0x", "pitch": "1.0", "enabled": True})
+            )
+            return
+
+        # Otherwise read from saved per-engine settings
+        settings = load_settings() or {}
+        saved = settings.get("tts_agent_voices_per_engine", {}).get(engine, {}).get(agent_id)
+        if saved:
+            self._editor_tts_settings = dict(saved)
+        else:
+            # Fall back to engine defaults
+            defaults = TTS_AGENT_VOICE_DEFAULTS.get(engine, {}).get(
+                agent_id, {"voice": "", "speed": "1.0x", "pitch": "1.0", "enabled": True}
+            )
+            self._editor_tts_settings = dict(defaults)
+
+    def _save_editor_tts_settings(self) -> None:
+        """Save current editor TTS settings to the correct storage."""
+        agent_id = self.editor_agent_id  # type: ignore[attr-defined]
+        engine = self.editor_tts_engine
+        if not agent_id:
+            return
+
+        # If editor engine matches the active engine, update live state
+        if engine == self.tts_engine:
+            if agent_id in self.tts_agent_voices:
+                self.tts_agent_voices[agent_id].update(self._editor_tts_settings)
+            self._save_settings()  # type: ignore[attr-defined]
+            return
+
+        # Otherwise save to per-engine settings in settings.json
+        from ..lib.settings import load_settings, save_settings
+        settings = load_settings() or {}
+        if "tts_agent_voices_per_engine" not in settings:
+            settings["tts_agent_voices_per_engine"] = {}
+        if engine not in settings["tts_agent_voices_per_engine"]:
+            settings["tts_agent_voices_per_engine"][engine] = {}
+        settings["tts_agent_voices_per_engine"][engine][agent_id] = dict(self._editor_tts_settings)
+        save_settings(settings)
+
+    def set_editor_tts_engine(self, label: str) -> None:
+        """Switch the TTS engine in the editor (for voice configuration)."""
+        from ..lib.i18n import tts_label_to_key
+        key = tts_label_to_key(label)
+        if key == "off":
+            return
+        self.editor_tts_engine = key
+        self._load_editor_tts_settings()
+
     def set_editor_agent_tts_voice(self, voice: str):
         """Set TTS voice for the agent currently open in the editor."""
-        self.set_agent_voice(self.editor_agent_id, voice)  # type: ignore[attr-defined]
+        self._editor_tts_settings["voice"] = voice
+        self._save_editor_tts_settings()
 
     def set_editor_agent_tts_speed(self, speed: str):
         """Set TTS speed for the agent currently open in the editor."""
-        self.set_agent_speed(self.editor_agent_id, speed)  # type: ignore[attr-defined]
-        self.tts_playback_rate = speed
+        self._editor_tts_settings["speed"] = speed
+        self._save_editor_tts_settings()
 
     def set_editor_agent_tts_pitch(self, pitch: str):
         """Set TTS pitch for the agent currently open in the editor."""
-        self.set_agent_pitch(self.editor_agent_id, pitch)  # type: ignore[attr-defined]
+        self._editor_tts_settings["pitch"] = pitch
+        self._save_editor_tts_settings()
 
     def toggle_editor_agent_tts(self):
         """Toggle TTS for the agent currently open in the editor."""
-        self.toggle_agent_tts(self.editor_agent_id)  # type: ignore[attr-defined]
+        self._editor_tts_settings["enabled"] = not self._editor_tts_settings.get("enabled", True)
+        self._save_editor_tts_settings()
 
     # ── Engine Key Helper ─────────────────────────────────────────
 

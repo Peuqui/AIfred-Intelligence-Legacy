@@ -700,7 +700,7 @@ class AgentConfigMixin(rx.State, mixin=True):
             ["symposion", TranslationManager.get_text("multi_agent_symposion", self.ui_language)],  # type: ignore[attr-defined]
         ]
 
-    @rx.var(deps=["agent_list"], auto_deps=False)
+    @rx.var(deps=["_agent_dropdown_items"], auto_deps=False)
     def selectable_agents(self) -> List[dict[str, str]]:
         """Agent list for the active-agent toggle row (id, display_name, emoji)."""
         from ..lib.agent_config import load_agents_raw
@@ -928,17 +928,20 @@ class AgentConfigMixin(rx.State, mixin=True):
     # Editor modal visibility
     agent_editor_open: bool = False
 
-    # Editor view mode: "list", "edit", or "memory"
-    agent_editor_mode: str = "list"
+    # Editor view mode: "config" or "memory"
+    agent_editor_mode: str = "config"
 
     # Memory browser state
     memory_browser_agent: str = ""  # Selected agent in memory browser ("" = overview)
     memory_browser_agent_display: str = ""  # Display name of selected agent
     memory_browser_entries: List[Dict[str, str]] = []  # Entries for selected agent
     memory_browser_collections: List[Dict[str, str]] = []  # Collection overview
+    memory_browser_filter: str = "all"  # "all", "session", "agent"
 
-    # Agent list for UI rendering (serializable dicts)
-    agent_list: List[dict] = []
+    # Agent dropdown options for the editor (["emoji name", ...])
+    _agent_dropdown_items: List[str] = []
+    # Mapping: display label → agent_id (for dropdown selection)
+    _agent_id_by_label: Dict[str, str] = {}
 
     # Currently editing agent (empty = creating new)
     editor_agent_id: str = ""
@@ -966,39 +969,79 @@ class AgentConfigMixin(rx.State, mixin=True):
     editor_emoji_picker_open: bool = False
 
 
-    def open_agent_editor(self) -> None:
-        """Open the agent editor modal and load agent list."""
-        self._refresh_agent_list()
-        self.agent_editor_mode = "list"
+    @rx.var(deps=["_agent_dropdown_items"], auto_deps=False)
+    def agent_dropdown_options(self) -> List[str]:
+        """Agent dropdown labels for the editor (e.g. ['🎩 AIfred', '🏛️ Sokrates', ...])."""
+        return self._agent_dropdown_items
+
+    @rx.var(deps=["editor_agent_id", "_agent_dropdown_items"], auto_deps=False)
+    def editor_agent_dropdown_value(self) -> str:
+        """Current dropdown value matching the selected agent."""
+        if not self.editor_agent_id:
+            return ""
+        for item in self._agent_dropdown_items:
+            # Format: "emoji Name" — match by checking if it maps to this agent_id
+            # We store a parallel mapping, but simpler: just find by id
+            pass
+        # Reconstruct the label from current editor state
+        return f"{self.editor_emoji} {self.editor_display_name}" if self.editor_agent_id else ""
+
+    def _refresh_agent_dropdown(self) -> None:
+        """Refresh the agent dropdown items from config."""
+        from ..lib.agent_config import load_agents_raw
+        raw = load_agents_raw()
+        self._agent_dropdown_items = [
+            f"{data['emoji']} {data['display_name']}"
+            for data in raw.values()
+        ]
+        # Store id mapping for lookup
+        self._agent_id_by_label = {
+            f"{data['emoji']} {data['display_name']}": aid
+            for aid, data in raw.items()
+        }
+
+    def open_agent_editor(self):
+        """Open the agent editor modal, select first agent."""
+        self._refresh_agent_dropdown()
+        self.agent_editor_mode = "config"
         self.agent_editor_open = True
-        self.editor_agent_id = ""
         self.editor_delete_confirm = ""
+        self.editor_emoji_picker_open = False
+
+        # Load first agent's data into state
+        from ..lib.agent_config import load_agents_raw
+        raw = load_agents_raw()
+        if raw:
+            first_id = next(iter(raw))
+            self._load_agent_into_state(first_id)
+
+        # Yield to render the modal DOM first
+        yield
+
+        # Now populate DOM fields (modal exists now)
+        yield self._push_editor_dom()
 
     def close_agent_editor(self) -> None:
         """Close the agent editor modal."""
         self.agent_editor_open = False
-        self.agent_editor_mode = "list"
         self.editor_agent_id = ""
         self.editor_delete_confirm = ""
 
-    def back_to_agent_list(self) -> None:
-        """Go back to agent list from edit view."""
-        self.agent_editor_mode = "list"
-        self.editor_agent_id = ""
-        self._refresh_agent_list()
+    def set_agent_editor_tab(self, tab: str) -> None:
+        """Switch between config and memory tabs."""
+        self.agent_editor_mode = tab
+        if tab == "memory":
+            self.open_memory_browser()
 
-    def _refresh_agent_list(self) -> None:
-        """Refresh the agent list from config for UI rendering."""
-        from ..lib.agent_config import load_agents_raw
-        raw = load_agents_raw()
-        self.agent_list = [
-            {"id": aid, **adata}
-            for aid, adata in raw.items()
-        ]
+    def select_editor_agent(self, label: str):
+        """Select an agent from the dropdown by its display label."""
+        agent_id = self._agent_id_by_label.get(label, "")
+        if agent_id:
+            self._load_agent_into_state(agent_id)
+            return self._push_editor_dom()
 
-    def edit_agent(self, agent_id: str) -> None:
-        """Open edit view for a specific agent, populate DOM via JS."""
-        import json as _json
+    def _load_agent_into_state(self, agent_id: str) -> None:
+        """Load an agent's config into editor state vars (no DOM touch)."""
         from ..lib.agent_config import get_agent_config
         config = get_agent_config(agent_id)
         if config is None:
@@ -1014,13 +1057,18 @@ class AgentConfigMixin(rx.State, mixin=True):
         self.editor_prompt_keys = list(config.prompts.keys())
         self.editor_delete_confirm = ""
         self.editor_emoji_picker_open = False
-        self.agent_editor_mode = "edit"
+
+        # Load TTS settings for this agent + current editor engine
+        self.editor_tts_engine = self.tts_engine  # type: ignore[attr-defined]
+        self._load_editor_tts_settings()  # type: ignore[attr-defined]
 
         self._load_editor_prompt("identity")
 
-        # Populate DOM fields via JS (setTimeout for render cycle)
-        name_js = _json.dumps(config.display_name)
-        desc_js = _json.dumps(config.description)
+    def _push_editor_dom(self):
+        """Push current editor state values into DOM fields via JS."""
+        import json as _json
+        name_js = _json.dumps(self.editor_display_name)
+        desc_js = _json.dumps(self._editor_description)
         prompt_js = _json.dumps(self._editor_prompt_content)
         return rx.call_script(  # type: ignore[return-value]
             "setTimeout(() => {"
@@ -1156,20 +1204,13 @@ class AgentConfigMixin(rx.State, mixin=True):
             self.add_debug(  # type: ignore[attr-defined]
                 f"\u2705 Agent '{self.editor_display_name}' created"
             )
-            # Switch to editing the newly created agent (stay in editor)
-            self.editor_agent_id = agent_id
-            self.editor_prompt_keys = list(new_config.prompts.keys())
-            self.editor_prompt_tab = "identity"
-            self._load_editor_prompt("identity")
-            self._refresh_agent_list()
-            # Push identity prompt content to DOM textarea
-            import json as _json
-            prompt_js = _json.dumps(self._editor_prompt_content)
-            return rx.call_script(  # type: ignore[return-value]
-                f"setTimeout(() => {{ const p = document.getElementById('editor-prompt-textarea'); if (p) p.value = {prompt_js}; }}, 50)",
-            )
+            # Select the newly created agent in the dropdown
+            self._refresh_agent_dropdown()
+            self._load_agent_into_state(agent_id)
+            return self._push_editor_dom()
 
-        self._refresh_agent_list()
+        # Existing agent saved — refresh dropdown, close modal
+        self._refresh_agent_dropdown()
         self.agent_editor_open = False
 
     def delete_agent_editor(self, agent_id: str) -> None:
@@ -1192,9 +1233,13 @@ class AgentConfigMixin(rx.State, mixin=True):
             self.add_debug(f"\u26a0\ufe0f {e}")  # type: ignore[attr-defined]
 
         self.editor_delete_confirm = ""
-        if self.editor_agent_id == agent_id:
-            self.editor_agent_id = ""
-        self._refresh_agent_list()
+        self._refresh_agent_dropdown()
+
+        # Select first remaining agent
+        from ..lib.agent_config import load_agents_raw
+        raw = load_agents_raw()
+        if raw:
+            self._select_agent_for_editor(next(iter(raw)))
 
     def clear_agent_memory(self, agent_id: str) -> None:
         """Clear an agent's long-term memory (confirm on first click, delete on second)."""
@@ -1238,7 +1283,7 @@ class AgentConfigMixin(rx.State, mixin=True):
         )
 
     def start_new_agent(self) -> None:
-        """Switch editor to 'create new agent' mode."""
+        """Switch editor to 'create new agent' mode (empty form)."""
         self.editor_agent_id = ""
         self.editor_display_name = ""
         self.editor_emoji = "\U0001f916"
@@ -1248,7 +1293,7 @@ class AgentConfigMixin(rx.State, mixin=True):
         self.editor_prompt_tab = "identity"
         self._editor_prompt_content = ""
         self.editor_prompt_keys = []
-        self.agent_editor_mode = "edit"
+        self.editor_delete_confirm = ""
         # Clear DOM fields
         return rx.call_script(  # type: ignore[return-value]
             "setTimeout(() => {"
@@ -1262,11 +1307,56 @@ class AgentConfigMixin(rx.State, mixin=True):
     # ================================================================
 
     def open_memory_browser(self) -> None:
-        """Switch to memory browser view and load collection overview."""
+        """Switch to memory browser view, pre-select AIfred."""
         self.agent_editor_mode = "memory"
-        self.memory_browser_agent = ""
-        self.memory_browser_entries = []
+        self.memory_browser_filter = "all"
         self._load_memory_collections()
+
+        # Pre-select AIfred's memory (or first available agent)
+        agent_collections = [
+            c for c in self.memory_browser_collections
+            if c["agent_id"] != "research_cache"
+        ]
+        if agent_collections:
+            # Prefer AIfred
+            aifred_col = next((c for c in agent_collections if c["agent_id"] == "aifred"), None)
+            pick = aifred_col or agent_collections[0]
+            self.browse_memory_agent(pick["agent_id"])
+
+    def select_memory_agent(self, label: str) -> None:
+        """Select an agent in the memory browser dropdown."""
+        # Find agent_id from display label
+        for col in self.memory_browser_collections:
+            if col["display_name"] == label:
+                self.browse_memory_agent(col["agent_id"])
+                return
+
+    def set_memory_filter(self, filter_value: str) -> None:
+        """Set the memory type filter (all/session/agent)."""
+        self.memory_browser_filter = filter_value
+
+    @rx.var(deps=["memory_browser_collections"], auto_deps=False)
+    def memory_dropdown_options(self) -> List[str]:
+        """All dropdown labels for memory browser (including Research Cache)."""
+        return [col["display_name"] for col in self.memory_browser_collections]
+
+    @rx.var(deps=["memory_browser_collections"], auto_deps=False)
+    def memory_agent_dropdown_options(self) -> List[str]:
+        """Agent-only dropdown labels (without Research Cache)."""
+        return [
+            col["display_name"] for col in self.memory_browser_collections
+            if col["agent_id"] != "research_cache"
+        ]
+
+    @rx.var(deps=["memory_browser_entries", "memory_browser_filter"], auto_deps=False)
+    def filtered_memory_entries(self) -> List[Dict[str, str]]:
+        """Memory entries filtered by type (all/session/agent)."""
+        if self.memory_browser_filter == "all":
+            return self.memory_browser_entries
+        elif self.memory_browser_filter == "session":
+            return [e for e in self.memory_browser_entries if e.get("type") == "session_summary"]
+        else:  # "agent" — everything the agent stored itself
+            return [e for e in self.memory_browser_entries if e.get("type") != "session_summary"]
 
     def _load_memory_collections(self) -> None:
         """Load overview of all ChromaDB agent memory collections."""
@@ -1301,8 +1391,13 @@ class AgentConfigMixin(rx.State, mixin=True):
         except Exception as e:
             self.add_debug(f"❌ Memory browser error: {e}")  # type: ignore[attr-defined]
 
-        collections.sort(key=lambda c: c["agent_id"])
-        self.memory_browser_collections = collections
+        # Research Cache first, then agents sorted alphabetically
+        research = [c for c in collections if c["agent_id"] == "research_cache"]
+        agents = sorted(
+            [c for c in collections if c["agent_id"] != "research_cache"],
+            key=lambda c: c["agent_id"],
+        )
+        self.memory_browser_collections = research + agents
 
     def browse_memory_agent(self, agent_id: str) -> None:
         """Load all entries for a specific agent's memory collection."""
