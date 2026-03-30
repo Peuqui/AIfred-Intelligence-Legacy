@@ -162,16 +162,11 @@ def restart_docker_container(
 
     compose_dir = compose_path.parent
 
-    # Write .env file if env_vars provided
+    # Pass env vars via process environment (NOT .env file — avoids Reflex hot-reload)
+    proc_env = os.environ.copy()
+    proc_env["FASTEST_GPU_ID"] = _detect_fastest_gpu()
     if env_vars:
-        env_file = compose_dir / ".env"
-        try:
-            with open(env_file, "w") as f:
-                for key, value in env_vars.items():
-                    f.write(f"{key}={value}\n")
-            log_message(f"Wrote .env: {env_vars}")
-        except (OSError, subprocess.CalledProcessError) as e:
-            return False, f"Failed to write .env: {e}"
+        proc_env.update(env_vars)
 
     # Stop container
     try:
@@ -179,7 +174,8 @@ def restart_docker_container(
             ["docker", "compose", "-f", str(compose_file), "down"],
             capture_output=True,
             text=True,
-            cwd=str(compose_dir)
+            cwd=str(compose_dir),
+            env=proc_env,
         )
         if result.returncode != 0:
             return False, f"docker compose down failed: {result.stderr}"
@@ -193,7 +189,8 @@ def restart_docker_container(
             ["docker", "compose", "-f", str(compose_file), "up", "-d"],
             capture_output=True,
             text=True,
-            cwd=str(compose_dir)
+            cwd=str(compose_dir),
+            env=proc_env,
         )
         if result.returncode != 0:
             return False, f"docker compose up failed: {result.stderr}"
