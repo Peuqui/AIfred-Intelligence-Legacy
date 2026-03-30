@@ -63,13 +63,14 @@ _speaker_names = None  # Just the names (loaded without model for /voices endpoi
 _custom_voices = {}  # Custom cloned voices
 _device = None  # "cuda" or "cpu" - set on model load
 
-# Auto-unload configuration (like Ollama's KEEP_ALIVE)
-# After KEEP_ALIVE_MINUTES of inactivity, the model is unloaded from VRAM
-# Container stays alive and responsive — model lazy-loads on next TTS request
-# Set to 0 to disable auto-unload
+# Auto-shutdown configuration (like Ollama's KEEP_ALIVE)
+# After KEEP_ALIVE_MINUTES of inactivity, container exits to free ALL VRAM
+# (including ~167 MB CUDA context that prevents GPU P8 power state)
+# Docker restart policy "unless-stopped" brings it back on next request
+# Set to 0 to disable auto-shutdown
 KEEP_ALIVE_MINUTES = int(os.environ.get("XTTS_KEEP_ALIVE", "5"))
 _last_request_time = None  # Timestamp of last TTS request
-_restart_timer = None  # Background timer for auto-unload
+_restart_timer = None  # Background timer for auto-shutdown
 _active_requests = 0  # Counter for in-flight requests
 
 # Paths
@@ -594,7 +595,7 @@ def split_text_into_chunks(text: str, max_chars: int = MAX_CHUNK_CHARS) -> list[
     return chunks
 
 
-def concatenate_audio_arrays(audio_arrays: list, sample_rate: int = 24000) -> "np.ndarray":
+def concatenate_audio_arrays(audio_arrays: list, sample_rate: int = 24000) -> "numpy.ndarray":  # noqa: F821
     """
     Concatenate multiple audio arrays into one.
 
@@ -1326,7 +1327,6 @@ def unload_model():
         {"success": true, "freed_device": "cuda|cpu|not_loaded"}
     """
     global _synthesizer, _config, _speaker_embeddings, _custom_voices, _device
-    import gc
 
     if _synthesizer is None:
         return jsonify({
@@ -1391,48 +1391,39 @@ def _deep_cuda_cleanup():
 
 
 def _auto_restart_server():
-    """Background task: Unload model after KEEP_ALIVE_MINUTES of inactivity.
+    """Background task: Shutdown container after KEEP_ALIVE_MINUTES of inactivity.
 
-    Instead of killing the container (which caused zombie Gunicorn issues),
-    we just unload the model from VRAM. The container stays alive and
-    responsive to health checks. Model will lazy-load on next TTS request.
-
-    This is the same pattern as Ollama's keep_alive behavior.
+    Kills the Gunicorn master to fully exit the container, releasing all VRAM
+    including the ~167 MB CUDA context overhead (allows GPU P8 power state).
+    Docker restart policy ("unless-stopped") brings the container back up
+    with EAGER_LOAD=1, so the model lazy-loads on the next /tts request.
     """
-    global _active_requests, _synthesizer, _config, _speaker_embeddings
-    global _custom_voices, _device, _restart_timer
+    global _active_requests
 
     if _synthesizer is None:
-        logger.debug("Auto-unload: Model not loaded, skipping")
+        logger.debug("Auto-shutdown: Model not loaded, skipping")
         return
 
-    # Don't unload if requests are in-flight
+    # Don't shutdown if requests are in-flight
     if _active_requests > 0:
-        logger.info(f"⏰ Auto-unload delayed: {_active_requests} request(s) in progress")
+        logger.info(f"⏰ Auto-shutdown delayed: {_active_requests} request(s) in progress")
         import threading
         retry_timer = threading.Timer(30, _auto_restart_server)
         retry_timer.daemon = True
         retry_timer.start()
         return
 
-    logger.info(f"⏰ Auto-unload after {KEEP_ALIVE_MINUTES} min inactivity - freeing VRAM...")
+    logger.info(f"⏰ Auto-shutdown after {KEEP_ALIVE_MINUTES} min inactivity - freeing all VRAM...")
 
-    # Cancel timer
-    if _restart_timer is not None:
-        _restart_timer.cancel()
-        _restart_timer = None
+    # Give logs time to flush
+    import time
+    time.sleep(0.5)
 
-    # Unload model (same as /unload endpoint)
-    freed_device = _device or "unknown"
-    _synthesizer = None
-    _config = None
-    _speaker_embeddings = None
-    _custom_voices = {}
-    _device = None
-
-    _deep_cuda_cleanup()
-
-    logger.info(f"✅ Model unloaded from {freed_device} - container stays alive")
+    # Signal Gunicorn master (parent process) to terminate
+    # Docker "unless-stopped" will restart the container automatically
+    import os
+    import signal
+    os.kill(os.getppid(), signal.SIGTERM)
 
 
 def _reset_restart_timer():
@@ -1480,7 +1471,6 @@ def tts():
     """
     import torch
     import torchaudio
-    import numpy as np
 
     # Parse request
     data = request.get_json()
@@ -1507,7 +1497,7 @@ def tts():
     original_text = text
     text = normalize_text_for_tts(text, language)
     if text != original_text:
-        logger.info(f"Text normalized for TTS (added punctuation)")
+        logger.info("Text normalized for TTS (added punctuation)")
 
     logger.info(f"Generating TTS: '{text[:50]}...' ({len(text)} chars) with language {language}, speaker {speaker}")
 
@@ -1815,13 +1805,13 @@ if EAGER_LOAD:
     get_synthesizer()
     logger.info("✅ Model loaded and ready")
 
-# Start auto-unload timer at container startup
-# Unloads model from VRAM after inactivity (container stays alive)
+# Start auto-shutdown timer at container startup
+# Container exits after inactivity, Docker restarts it (lazy-load on next request)
 if KEEP_ALIVE_MINUTES > 0:
-    logger.info(f"⏰ Auto-unload timer started: {KEEP_ALIVE_MINUTES} min")
+    logger.info(f"⏰ Auto-shutdown timer started: {KEEP_ALIVE_MINUTES} min")
     _reset_restart_timer()
 else:
-    logger.info("⏰ Auto-unload disabled (XTTS_KEEP_ALIVE=0)")
+    logger.info("⏰ Auto-shutdown disabled (XTTS_KEEP_ALIVE=0)")
 
 
 if __name__ == "__main__":

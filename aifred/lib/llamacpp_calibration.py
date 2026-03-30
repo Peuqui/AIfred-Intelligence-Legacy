@@ -1796,6 +1796,80 @@ def add_llamaswap_speed_variant(
     return True
 
 
+def add_llamaswap_tts_variant(
+    config_path: Path,
+    model_id: str,
+    tts_context: int,
+    tts_backend: str,
+) -> bool:
+    """
+    Add (or update) a TTS variant YAML entry in the llama-swap config.
+
+    Copies the existing model_id block, renames it to model_id-tts-{backend},
+    and replaces -c with the TTS-calibrated context. Preserves all other
+    settings (tensor-split, ngl, etc.) from the original block.
+
+    Args:
+        config_path: Path to llama-swap config.yaml
+        model_id: Base model ID (e.g. "GPT-OSS-120B-A5B-UD-Q8_K_XL")
+        tts_context: Calibrated context with TTS VRAM reservation
+        tts_backend: TTS backend name ("xtts" or "moss")
+    """
+    if not config_path.exists():
+        logger.error(f"llama-swap config not found: {config_path}")
+        return False
+
+    content = config_path.read_text(encoding='utf-8')
+    lines = content.split('\n')
+
+    # Find original model block
+    orig_start, orig_end = _get_model_block_bounds(content, model_id)
+    if orig_start < 0:
+        logger.error(f"Model {model_id} not found in llama-swap config")
+        return False
+
+    orig_block_lines = lines[orig_start:orig_end]
+
+    # Trim trailing blank lines and section comments
+    while orig_block_lines and (
+        not orig_block_lines[-1].strip()
+        or orig_block_lines[-1].strip().startswith('#')
+    ):
+        orig_block_lines.pop()
+
+    # Build TTS block by modifying the original block's text
+    tts_model_id = f"{model_id}-tts-{tts_backend}"
+    tts_block_text = '\n'.join(orig_block_lines)
+
+    # Rename: replace only the model key (first occurrence)
+    tts_block_text = re.sub(
+        rf'^(\s+){re.escape(model_id)}\s*:',
+        rf'\g<1>{tts_model_id}:',
+        tts_block_text,
+        count=1,
+        flags=re.MULTILINE,
+    )
+
+    # Replace -c with TTS-calibrated context
+    tts_block_text = re.sub(r'-c\s+\d+', f'-c {tts_context}', tts_block_text)
+
+    tts_block_lines = tts_block_text.split('\n')
+
+    # Check if TTS variant already exists — update in-place
+    tts_start, tts_end = _get_model_block_bounds(content, tts_model_id)
+    if tts_start >= 0:
+        new_lines = lines[:tts_start] + tts_block_lines + lines[tts_end:]
+        config_path.write_text('\n'.join(new_lines), encoding='utf-8')
+        logger.info(f"Updated TTS variant in llama-swap config: {tts_model_id}")
+    else:
+        # Insert right after the original block
+        new_lines = lines[:orig_end] + tts_block_lines + lines[orig_end:]
+        config_path.write_text('\n'.join(new_lines), encoding='utf-8')
+        logger.info(f"Added TTS variant to llama-swap config: {tts_model_id}")
+
+    return True
+
+
 def _inject_kv_quant(cmd: str, kv_quant: str) -> str:
     """Set -ctk/-ctv quantization in a llama-server command string.
 

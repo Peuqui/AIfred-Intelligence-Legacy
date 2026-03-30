@@ -416,7 +416,66 @@ class CalibrationMixin(rx.State, mixin=True):
                     self.add_debug("⚠️ Could not write speed variant to llama-swap config")  # type: ignore[attr-defined]
             yield
 
-            # Step 5: Restart llama-swap
+            # Step 5: TTS variant calibration (XTTS + MOSS)
+            # Same calibration but with TTS model pre-loaded in VRAM
+            from ..lib.llamacpp_calibration import add_llamaswap_tts_variant
+
+            for tts_backend, tts_label, tts_start_fn, tts_stop_fn in [
+                ("xtts", "XTTS", "_start_xtts_for_calibration", "_stop_xtts_for_calibration"),
+                ("moss", "MOSS-TTS", "_start_moss_for_calibration", "_stop_moss_for_calibration"),
+            ]:
+                start_fn = getattr(self, tts_start_fn, None)
+                stop_fn = getattr(self, tts_stop_fn, None)
+                if not start_fn or not stop_fn:
+                    continue
+
+                self.add_debug(f"🔊 {tts_label} variant calibration...")  # type: ignore[attr-defined]
+                yield
+
+                # Load TTS model into VRAM
+                tts_ok = start_fn()
+                if not tts_ok:
+                    self.add_debug(f"⚠️ {tts_label} not available, skipping TTS variant")  # type: ignore[attr-defined]
+                    yield
+                    continue
+
+                self.add_debug(f"   {tts_label} loaded, running calibration with reduced VRAM...")  # type: ignore[attr-defined]
+                yield
+
+                # Run the same calibration with TTS occupying VRAM
+                tts_ctx = None
+                async for progress_msg in backend.calibrate_max_context_generator(  # type: ignore[attr-defined]
+                    calibration_model_id
+                ):
+                    if progress_msg.startswith("__RESULT__:"):
+                        parts = progress_msg.split(":")
+                        tts_ctx = int(parts[1])
+                    elif not progress_msg.startswith("__SPEED__:"):
+                        self.add_debug(f"   📊 {progress_msg}")  # type: ignore[attr-defined]
+                        yield
+
+                # Unload TTS model
+                stop_fn()
+
+                if tts_ctx and tts_ctx > 0:
+                    added = add_llamaswap_tts_variant(
+                        LLAMASWAP_CONFIG_PATH,
+                        calibration_model_id,
+                        tts_ctx,
+                        tts_backend,
+                    )
+                    if added:
+                        self.add_debug(  # type: ignore[attr-defined]
+                            f"   ✅ {tts_label} variant: {calibration_model_id}-tts-{tts_backend} "
+                            f"(ctx {format_number(tts_ctx)})"
+                        )
+                    else:
+                        self.add_debug(f"   ⚠️ Could not write {tts_label} variant to config")  # type: ignore[attr-defined]
+                else:
+                    self.add_debug(f"   ❌ {tts_label} variant calibration failed")  # type: ignore[attr-defined]
+                yield
+
+            # Step 6: Restart llama-swap
             self.add_debug("🔄 Restarting llama-swap service...")  # type: ignore[attr-defined]
             try:
                 subprocess.run(
@@ -475,6 +534,54 @@ class CalibrationMixin(rx.State, mixin=True):
                     pass
             self.is_calibrating = False
             yield
+
+    # ------------------------------------------------------------------
+    # TTS Start/Stop Helpers (for calibration with TTS VRAM loaded)
+    # ------------------------------------------------------------------
+
+    def _start_xtts_for_calibration(self) -> bool:
+        """Start XTTS container, load model, and run a test inference to hit peak VRAM."""
+        from ..lib.process_utils import ensure_xtts_ready
+        success, msg = ensure_xtts_ready(timeout=120)
+        if not success:
+            return False
+        self.add_debug(f"   🔊 {msg}")  # type: ignore[attr-defined]
+
+        # Run a test TTS to provoke peak VRAM usage (idle ~2 GB, peak ~4-5 GB)
+        import httpx
+        from ..lib.config import XTTS_SERVICE_URL
+        try:
+            self.add_debug("   🔊 Running test TTS for peak VRAM measurement...")  # type: ignore[attr-defined]
+            r = httpx.post(
+                f"{XTTS_SERVICE_URL}/tts",
+                json={"text": "Dies ist ein Kalibrierungstest für den Sprachspeicher.", "language": "de"},
+                timeout=60.0,
+            )
+            if r.is_success:
+                self.add_debug("   🔊 Peak VRAM reached after test inference")  # type: ignore[attr-defined]
+        except httpx.HTTPError:
+            self.add_debug("   ⚠️ Test TTS failed, using idle VRAM (may underestimate)")  # type: ignore[attr-defined]
+        return True
+
+    def _stop_xtts_for_calibration(self) -> None:
+        """Stop XTTS container completely to free all VRAM (including CUDA context)."""
+        from ..lib.process_utils import stop_xtts_container
+        stop_xtts_container()
+        self.add_debug("   🔊 XTTS container stopped")  # type: ignore[attr-defined]
+
+    def _start_moss_for_calibration(self) -> bool:
+        """Start MOSS-TTS container and wait for model to load."""
+        from ..lib.process_utils import ensure_moss_ready
+        success, msg, device = ensure_moss_ready(timeout=180)
+        if success:
+            self.add_debug(f"   🔊 {msg}")  # type: ignore[attr-defined]
+        return success
+
+    def _stop_moss_for_calibration(self) -> None:
+        """Stop MOSS-TTS container to free VRAM."""
+        from ..lib.process_utils import stop_moss_container
+        stop_moss_container()
+        self.add_debug("   🔊 MOSS-TTS container stopped")  # type: ignore[attr-defined]
 
     # ------------------------------------------------------------------
     # Calibration info display
