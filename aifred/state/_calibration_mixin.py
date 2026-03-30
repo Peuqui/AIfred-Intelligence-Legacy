@@ -14,6 +14,23 @@ import reflex as rx
 from ..lib.logging_utils import CONSOLE_SEPARATOR
 
 
+def _parse_calibration_result(msg: str) -> dict:
+    """Parse __RESULT__ protocol message. Single source of truth.
+
+    Format: __RESULT__:{ctx}:{ngl}:{mode}:{thinks|nothink}:{kv}
+    Returns dict with keys: ctx, ngl, mode, thinks, kv
+    """
+    parts = msg.removeprefix("__RESULT__:").split(":")
+    return {
+        "ctx": int(parts[0]) if parts else 0,
+        "ngl": int(parts[1]) if len(parts) > 1 else 99,
+        "mode": parts[2] if len(parts) > 2 else "gpu",
+        "thinks": parts[3] == "thinks" if len(parts) > 3 else False,
+        "thinks_tested": len(parts) > 3,
+        "kv": parts[4] if len(parts) > 4 else "f16",
+    }
+
+
 class CalibrationMixin(rx.State, mixin=True):
     """Mixin for context calibration and server restart."""
 
@@ -293,11 +310,13 @@ class CalibrationMixin(rx.State, mixin=True):
             # Step 2: Run calibration (Phase 1: GPU-only, Phase 2: Hybrid if needed,
             #          Phase 3: Speed split for multi-GPU models)
             # Result format: __RESULT__:{ctx}:{ngl}:{mode}:{thinks|nothink}
-            # Speed format:  __SPEED__:{cuda0},{rest},{context},{num_gpus},{kv_quant}
+            # Speed format:  __SPEED__:{layer_split},{context},{num_gpus},{kv_quant}
+            #   layer_split is full distribution e.g. "26:11:11:0"
             calibrated_ctx = None
             calibrated_ngl = 99
             calibrated_mode = "gpu"
             thinking_tested = False
+            speed_layer_split = ""
             speed_split_cuda0 = 0
             speed_split_rest = 0
             speed_split_context = MIN_USEFUL_CONTEXT_TOKENS
@@ -310,27 +329,30 @@ class CalibrationMixin(rx.State, mixin=True):
                 calibration_model_id
             ):
                 if progress_msg.startswith("__RESULT__:"):
-                    parts = progress_msg.split(":")
-                    calibrated_ctx = int(parts[1])
-                    calibrated_ngl = int(parts[2]) if len(parts) > 2 else 99
-                    calibrated_mode = parts[3] if len(parts) > 3 else "gpu"
-                    if len(parts) > 4:
+                    r = _parse_calibration_result(progress_msg)
+                    calibrated_ctx = r["ctx"]
+                    calibrated_ngl = r["ngl"]
+                    calibrated_mode = r["mode"]
+                    if r["thinks_tested"]:
                         thinking_tested = True
-                        supports_thinking = parts[4] == "thinks"
+                        supports_thinking = r["thinks"]
                 elif progress_msg.startswith("__SPEED__:"):
-                    speed_val = progress_msg.split(":")[1]
-                    if "," in speed_val:
-                        speed_parts = speed_val.split(",")
-                        speed_split_cuda0 = int(speed_parts[0])
-                        speed_split_rest = int(speed_parts[1])
+                    speed_payload = progress_msg.removeprefix("__SPEED__:")
+                    if "," in speed_payload:
+                        speed_parts = speed_payload.split(",")
+                        speed_layer_split = speed_parts[0]  # e.g. "26:11:11:0"
+                        # Extract cuda0 and rest from layer split
+                        layer_vals = [int(x) for x in speed_layer_split.split(":")]
+                        speed_split_cuda0 = layer_vals[0]
+                        speed_split_rest = sum(layer_vals[1:])
+                        if len(speed_parts) > 1:
+                            speed_split_context = int(speed_parts[1])
                         if len(speed_parts) > 2:
-                            speed_split_context = int(speed_parts[2])
+                            speed_num_gpus = int(speed_parts[2])
                         if len(speed_parts) > 3:
-                            speed_num_gpus = int(speed_parts[3])
-                        if len(speed_parts) > 4:
-                            speed_kv_quant = speed_parts[4]
+                            speed_kv_quant = speed_parts[3]
                     else:
-                        speed_split_cuda0 = int(speed_val)
+                        speed_split_cuda0 = int(speed_payload)
                 else:
                     self.add_debug(f"📊 {progress_msg}")  # type: ignore[attr-defined]
                     yield
@@ -397,9 +419,10 @@ class CalibrationMixin(rx.State, mixin=True):
                 if added_speed:
                     gpu_info_str = f", {speed_num_gpus} GPUs" if speed_num_gpus else ""
                     kv_info_str = f", KV={speed_kv_quant}" if speed_kv_quant != "f16" else ""
+                    split_display = speed_layer_split or f"{speed_split_cuda0}:{speed_split_rest}"
                     self.add_debug(  # type: ignore[attr-defined]
                         f"   ⚡ Speed variant: {calibration_model_id}-speed "
-                        f"(split {speed_split_cuda0}:{speed_split_rest}, "
+                        f"(split {split_display}, "
                         f"ctx {format_number(speed_split_context)}{gpu_info_str}{kv_info_str})"
                     )
                     # Set CUDA_VISIBLE_DEVICES for speed variant
@@ -428,44 +451,44 @@ class CalibrationMixin(rx.State, mixin=True):
 
             # Step 5: TTS variant calibration (XTTS + MOSS)
             # Same calibration but with TTS model pre-loaded in VRAM
-            from ..lib.llamacpp_calibration import add_llamaswap_tts_variant
+            if True:
+                from ..lib.llamacpp_calibration import add_llamaswap_tts_variant
 
-            for tts_backend, tts_label, tts_start_fn, tts_stop_fn in [
-                ("xtts", "XTTS", "_start_xtts_for_calibration", "_stop_xtts_for_calibration"),
-                ("moss", "MOSS-TTS", "_start_moss_for_calibration", "_stop_moss_for_calibration"),
-            ]:
-                start_fn = getattr(self, tts_start_fn, None)
-                stop_fn = getattr(self, tts_stop_fn, None)
-                if not start_fn or not stop_fn:
-                    continue
+                for tts_backend, tts_label, tts_start_fn, tts_stop_fn in [
+                    ("xtts", "XTTS", "_start_xtts_for_calibration", "_stop_xtts_for_calibration"),
+                    ("moss", "MOSS-TTS", "_start_moss_for_calibration", "_stop_moss_for_calibration"),
+                ]:
+                    start_fn = getattr(self, tts_start_fn, None)
+                    stop_fn = getattr(self, tts_stop_fn, None)
+                    if not start_fn or not stop_fn:
+                        continue
 
-                self.add_debug(f"🔊 {tts_label} variant calibration...")  # type: ignore[attr-defined]
-                yield
-
-                # Load TTS model into VRAM
-                tts_ok = start_fn()
-                if not tts_ok:
-                    self.add_debug(f"⚠️ {tts_label} not available, skipping TTS variant")  # type: ignore[attr-defined]
+                    self.add_debug(f"🔊 {tts_label} variant calibration...")  # type: ignore[attr-defined]
                     yield
-                    continue
 
-                self.add_debug(f"   {tts_label} loaded, running calibration with reduced VRAM...")  # type: ignore[attr-defined]
-                yield
-
-                # Run the same calibration with TTS occupying VRAM
-                tts_ctx = None
-                async for progress_msg in backend.calibrate_max_context_generator(  # type: ignore[attr-defined]
-                    calibration_model_id
-                ):
-                    if progress_msg.startswith("__RESULT__:"):
-                        parts = progress_msg.split(":")
-                        tts_ctx = int(parts[1])
-                    elif not progress_msg.startswith("__SPEED__:"):
-                        self.add_debug(f"   📊 {progress_msg}")  # type: ignore[attr-defined]
+                    tts_ok = start_fn()
+                    if not tts_ok:
+                        self.add_debug(f"⚠️ {tts_label} not available, skipping TTS variant")  # type: ignore[attr-defined]
                         yield
+                        continue
 
-                # Unload TTS model
-                stop_fn()
+                    self.add_debug(f"   {tts_label} loaded, running calibration with reduced VRAM...")  # type: ignore[attr-defined]
+                    yield
+
+                    tts_ctx = None
+                    tts_kv = "f16"
+                    async for progress_msg in backend.calibrate_max_context_generator(  # type: ignore[attr-defined]
+                        calibration_model_id, dry_run=True,
+                    ):
+                        if progress_msg.startswith("__RESULT__:"):
+                            r = _parse_calibration_result(progress_msg)
+                            tts_ctx = r["ctx"]
+                            tts_kv = r["kv"]
+                        elif not progress_msg.startswith("__SPEED__:"):
+                            self.add_debug(f"   📊 {progress_msg}")  # type: ignore[attr-defined]
+                            yield
+
+                    stop_fn()
 
                 if tts_ctx and tts_ctx > 0:
                     added = add_llamaswap_tts_variant(
@@ -473,6 +496,7 @@ class CalibrationMixin(rx.State, mixin=True):
                         calibration_model_id,
                         tts_ctx,
                         tts_backend,
+                        kv_quant=tts_kv,
                     )
                     if added:
                         self.add_debug(  # type: ignore[attr-defined]

@@ -12,6 +12,7 @@ llama-swap YAML config (both -c and -ngl).
 """
 
 import asyncio
+import copy
 import logging
 import re
 import shlex
@@ -20,7 +21,7 @@ import os
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import Any, AsyncIterator, Callable, Dict, Optional
+from typing import Any, AsyncIterator, Dict, Optional
 
 import httpx
 import yaml
@@ -91,6 +92,65 @@ def _find_min_gpus(model_size_mb: float, per_gpu_total_mb: list[int]) -> int:
         if model_size_mb < available - (_MIN_GPU_SAFETY_MARGIN_MB * n):
             return n
     return len(per_gpu_total_mb)
+
+
+def _fmt_test(
+    iteration: int | str,
+    context: int,
+    fits: bool | None = None,
+    gpu_list: list[dict[str, Any]] | None = None,
+    cuda_gpu_names: list[str] | None = None,
+    split: str = "",
+    label: str = "",
+) -> str:
+    """Central formatter for calibration test results.
+
+    Produces consistent output like:
+      [3] 2:1:1:1 | ctx 180.800 | ✓ | RTX8000: 947 MB, P40: 1.049 MB, P40: 717 MB
+      [A.2] 37:6:5:0 | ctx 32.768 | ✗ OOM
+
+    Args:
+        iteration: Step number or label (e.g. 3, "A.2", "B1")
+        context: Context tokens being tested
+        fits: True/False/None (None = testing, no result yet)
+        gpu_list: Per-GPU VRAM info dicts
+        cuda_gpu_names: CUDA-ordered GPU names for consistent labeling
+        split: Tensor-split string (e.g. "26:11:11:0") — omitted if empty
+        label: Optional extra label (e.g. "native", "projected")
+    """
+    parts = [f"[{iteration}]"]
+
+    if split:
+        parts.append(split)
+    parts.append(f"ctx {format_number(context)}")
+
+    if label:
+        parts.append(f"({label})")
+
+    if fits is None:
+        return " | ".join(parts) + " ..."
+
+    status = "✓" if fits else "✗"
+    parts.append(status)
+
+    # VRAM detail
+    if gpu_list:
+        vram_parts = []
+        if cuda_gpu_names:
+            for i, name in enumerate(cuda_gpu_names):
+                matched = next((g for g in gpu_list if g["name"] == name), None)
+                if matched:
+                    vram_parts.append(f"{name}: {format_number(matched['free_mb'])} MB")
+        else:
+            for g in gpu_list:
+                name = g.get("name", f"GPU{g.get('index', '?')}")
+                vram_parts.append(f"{name}: {format_number(g['free_mb'])} MB")
+        if vram_parts:
+            parts.append(", ".join(vram_parts))
+    elif fits is False:
+        parts.append("OOM")
+
+    return " | ".join(parts)
 
 
 def _format_cuda_detail(
@@ -197,6 +257,14 @@ def parse_llamaswap_config(config_path: Path) -> Dict[str, Dict]:
                 reasoning_format = parts[i + 1]
                 break
 
+        # Extract env variables (e.g. CUDA_VISIBLE_DEVICES)
+        env_list = model_config.get("env", [])
+        env_dict: Dict[str, str] = {}
+        for env_entry in env_list:
+            if isinstance(env_entry, str) and "=" in env_entry:
+                k, v = env_entry.split("=", 1)
+                env_dict[k.strip()] = v.strip()
+
         result[model_id] = {
             "gguf_path": gguf_path,
             "llama_server_bin": llama_server_bin,
@@ -205,6 +273,7 @@ def parse_llamaswap_config(config_path: Path) -> Dict[str, Dict]:
             "kv_cache_quant": kv_cache_quant,
             "reasoning_format": reasoning_format,
             "full_cmd": cmd,
+            "env": env_dict,
         }
 
     return result
@@ -235,70 +304,57 @@ def parse_sampling_from_cmd(cmd: str) -> Dict[str, float]:
     return result
 
 
+def _read_llamaswap_yaml(config_path: Path) -> dict:
+    """Read llama-swap config as Python dict."""
+    with open(config_path, 'r', encoding='utf-8') as f:
+        return yaml.safe_load(f)
+
+
+def _write_llamaswap_yaml(config_path: Path, config: dict) -> None:
+    """Write llama-swap config from Python dict."""
+    with open(config_path, 'w', encoding='utf-8') as f:
+        yaml.dump(config, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+
+
+def _get_model_cmd(config: dict, model_id: str) -> str | None:
+    """Get cmd string for a model from parsed config dict."""
+    models = config.get("models", {})
+    model = models.get(model_id)
+    if not model:
+        return None
+    return model.get("cmd", "")
+
+
+def _set_model_cmd(config: dict, model_id: str, cmd: str) -> None:
+    """Set cmd string for a model in config dict."""
+    config["models"][model_id]["cmd"] = cmd
+
+
 def update_llamaswap_context(
     config_path: Path,
     model_id: str,
     new_context: int
 ) -> bool:
-    """
-    Update the -c value in llama-swap YAML for a specific model.
-
-    Uses regex on raw file content to preserve YAML formatting
-    (PyYAML's dump() destroys quoting style and line breaks).
-    """
+    """Update the -c value in llama-swap YAML for a specific model."""
     if not config_path.exists():
         logger.error(f"llama-swap config not found: {config_path}")
         return False
 
-    # Check if model exists and if value already matches
-    config = parse_llamaswap_config(config_path)
-    model_info = config.get(model_id)
-    if not model_info:
+    config = _read_llamaswap_yaml(config_path)
+    cmd = _get_model_cmd(config, model_id)
+    if cmd is None:
         logger.error(f"Model {model_id} not found in llama-swap config")
         return False
 
-    if model_info["current_context"] == new_context:
+    new_cmd = re.sub(r'-c\s+\d+', f'-c {new_context}', cmd)
+    if new_cmd == cmd:
         logger.info(f"llama-swap config already up to date: {model_id} -c {new_context}")
         return True
 
-    content = config_path.read_text(encoding='utf-8')
-    new_content = _transform_model_block(content, model_id, lambda ln: re.sub(r'-c\s+\d+', f'-c {new_context}', ln))
-
-    if new_content == content:
-        logger.error(f"Could not replace -c value for {model_id} in config")
-        return False
-
-    config_path.write_text(new_content, encoding='utf-8')
+    _set_model_cmd(config, model_id, new_cmd)
+    _write_llamaswap_yaml(config_path, config)
     logger.info(f"Updated llama-swap config: {model_id} → -c {new_context}")
     return True
-
-
-def _transform_model_block(
-    content: str,
-    model_id: str,
-    line_transform: Callable[[str], str],
-) -> str:
-    """Apply a line transformation to a specific model's block in llama-swap YAML.
-
-    Handles model block detection (start/end) and applies line_transform
-    to each line within the target model's block.
-    """
-    lines = content.split('\n')
-    in_model_block = False
-    result_lines = []
-
-    for line in lines:
-        if re.match(rf'^\s+{re.escape(model_id)}\s*:', line):
-            in_model_block = True
-        elif in_model_block and re.match(r'^\s+\w', line) and not line.strip().startswith(('cmd:', 'ttl:', '-')):
-            in_model_block = False
-
-        if in_model_block:
-            line = line_transform(line)
-
-        result_lines.append(line)
-
-    return '\n'.join(result_lines)
 
 
 def update_llamaswap_ngl(
@@ -306,33 +362,24 @@ def update_llamaswap_ngl(
     model_id: str,
     new_ngl: int
 ) -> bool:
-    """
-    Update the -ngl value in llama-swap YAML for a specific model.
-
-    Uses regex on raw file content to preserve YAML formatting.
-    """
+    """Update the -ngl value in llama-swap YAML for a specific model."""
     if not config_path.exists():
         logger.error(f"llama-swap config not found: {config_path}")
         return False
 
-    config = parse_llamaswap_config(config_path)
-    model_info = config.get(model_id)
-    if not model_info:
+    config = _read_llamaswap_yaml(config_path)
+    cmd = _get_model_cmd(config, model_id)
+    if cmd is None:
         logger.error(f"Model {model_id} not found in llama-swap config")
         return False
 
-    if model_info["ngl"] == new_ngl:
+    new_cmd = re.sub(r'-ngl\s+\d+', f'-ngl {new_ngl}', cmd)
+    if new_cmd == cmd:
         logger.info(f"llama-swap config already up to date: {model_id} -ngl {new_ngl}")
         return True
 
-    content = config_path.read_text(encoding='utf-8')
-    new_content = _transform_model_block(content, model_id, lambda ln: re.sub(r'-ngl\s+\d+', f'-ngl {new_ngl}', ln))
-
-    if new_content == content:
-        logger.error(f"Could not replace -ngl value for {model_id} in config")
-        return False
-
-    config_path.write_text(new_content, encoding='utf-8')
+    _set_model_cmd(config, model_id, new_cmd)
+    _write_llamaswap_yaml(config_path, config)
     logger.info(f"Updated llama-swap config: {model_id} → -ngl {new_ngl}")
     return True
 
@@ -345,15 +392,15 @@ def update_llamaswap_tensor_split(
     """Update --tensor-split / -ts in llama-swap YAML for a specific model.
 
     Trims trailing zeros (inactive GPUs hidden by CUDA_VISIBLE_DEVICES).
-    Uses regex on raw file content to preserve YAML formatting.
+    If tensor-split is absent, inserts it after -ngl with -sm layer.
     """
     if not config_path.exists():
         logger.error(f"llama-swap config not found: {config_path}")
         return False
 
-    config = parse_llamaswap_config(config_path)
-    model_info = config.get(model_id)
-    if not model_info:
+    config = _read_llamaswap_yaml(config_path)
+    cmd = _get_model_cmd(config, model_id)
+    if cmd is None:
         logger.error(f"Model {model_id} not found in llama-swap config")
         return False
 
@@ -362,67 +409,15 @@ def update_llamaswap_tensor_split(
     while len(trimmed) > 1 and trimmed[-1] == 0:
         trimmed.pop()
 
-    new_val = ",".join(f"{r:g}" for r in trimmed)
-    content = config_path.read_text(encoding='utf-8')
-    new_content = _replace_ts_in_model_block(content, model_id, new_val)
-
-    if new_content == content:
-        logger.info(f"llama-swap config already up to date: {model_id} -ts {new_val}")
+    new_cmd = _ensure_tensor_split(cmd, trimmed)
+    if new_cmd == cmd:
+        logger.info(f"llama-swap config already up to date: {model_id} tensor-split")
         return True
 
-    config_path.write_text(new_content, encoding='utf-8')
-    logger.info(f"Updated llama-swap config: {model_id} → -ts {new_val}")
+    _set_model_cmd(config, model_id, new_cmd)
+    _write_llamaswap_yaml(config_path, config)
+    logger.info(f"Updated llama-swap config: {model_id} → tensor-split {trimmed}")
     return True
-
-
-def _replace_ts_in_model_block(content: str, model_id: str, new_val: str) -> str:
-    """Replace or insert --tensor-split in a specific model's cmd block.
-
-    If tensor-split already exists: replaces the value.
-    If not: inserts '-sm layer --tensor-split VALUE' after -ngl.
-    """
-    lines = content.split('\n')
-    in_model_block = False
-    found_ts = False
-    ngl_line_idx = -1
-    result_lines: list[str] = []
-
-    for line in lines:
-        if re.match(rf'^\s+{re.escape(model_id)}\s*:', line):
-            in_model_block = True
-            found_ts = False
-            ngl_line_idx = -1
-        elif in_model_block and re.match(r'^\s+\w', line) and not line.strip().startswith(('cmd:', 'ttl:', '-')):
-            # Leaving model block — insert if no tensor-split was found
-            if not found_ts and ngl_line_idx >= 0:
-                sm_part = "-sm layer " if "-sm " not in result_lines[ngl_line_idx] else ""
-                result_lines[ngl_line_idx] = re.sub(
-                    r'(-ngl\s+\d+)',
-                    rf'\1 {sm_part}--tensor-split {new_val}',
-                    result_lines[ngl_line_idx],
-                )
-            in_model_block = False
-
-        if in_model_block:
-            if re.search(r'(--tensor-split|-ts)\s+[\d.,]+', line):
-                found_ts = True
-                line = re.sub(r'(--tensor-split\s+)[\d.,]+', rf'\g<1>{new_val}', line)
-                line = re.sub(r'(-ts\s+)[\d.,]+', rf'\g<1>{new_val}', line)
-            elif not found_ts and ngl_line_idx < 0 and re.search(r'-ngl\s+\d+', line):
-                ngl_line_idx = len(result_lines)
-
-        result_lines.append(line)
-
-    # Handle model block at end of file
-    if in_model_block and not found_ts and ngl_line_idx >= 0:
-        sm_part = "-sm layer " if "-sm " not in result_lines[ngl_line_idx] else ""
-        result_lines[ngl_line_idx] = re.sub(
-            r'(-ngl\s+\d+)',
-            rf'\1 {sm_part}--tensor-split {new_val}',
-            result_lines[ngl_line_idx],
-        )
-
-    return '\n'.join(result_lines)
 
 
 def update_llamaswap_cuda_visible(
@@ -439,75 +434,37 @@ def update_llamaswap_cuda_visible(
     if not config_path.exists():
         return False
 
-    content = config_path.read_text(encoding='utf-8')
-    lines = content.split('\n')
-
-    start, end = _get_model_block_bounds(content, model_id)
-    if start < 0:
+    config = _read_llamaswap_yaml(config_path)
+    models = config.get("models", {})
+    model = models.get(model_id)
+    if not model:
         logger.error(f"Model {model_id} not found in llama-swap config")
         return False
 
-    # Determine indent from model line (e.g. "  model-name:" → indent=2)
-    model_indent = len(lines[start]) - len(lines[start].lstrip())
-    field_indent = ' ' * (model_indent + 2)
-    list_indent = ' ' * (model_indent + 4)
-
     cuda_vis = ",".join(str(i) for i in range(num_active_gpus))
 
-    # Scan block for existing env section and ttl line
-    env_start_idx = -1
-    env_end_idx = -1
-    ttl_idx = -1
-
-    for i in range(start + 1, end):
-        stripped = lines[i].strip()
-        if stripped.startswith('env:'):
-            env_start_idx = i
-            # Find end of env list (consecutive "- " lines)
-            for j in range(i + 1, end):
-                if lines[j].strip().startswith('- '):
-                    env_end_idx = j + 1
-                else:
-                    break
-            if env_end_idx < 0:
-                env_end_idx = i + 1
-        elif stripped.startswith('ttl:'):
-            ttl_idx = i
-
     # Trim trailing zeros from tensor-split in cmd
+    cmd = model.get("cmd", "")
     if num_active_gpus < total_gpus:
-        for i in range(start + 1, end):
-            line = lines[i]
-            ts_match = re.search(r'(--tensor-split|-ts)\s+([\d.,]+)', line)
-            if ts_match:
-                ts_vals = [v for v in ts_match.group(2).split(',') if v]
-                # Trim trailing zeros
-                while len(ts_vals) > 1 and ts_vals[-1] in ('0', '0.0'):
-                    ts_vals.pop()
-                trimmed = ','.join(ts_vals)
-                lines[i] = line[:ts_match.start(2)] + trimmed + line[ts_match.end(2):]
-                break
+        ts_match = re.search(r'(--tensor-split|-ts)\s+([\d.,]+)', cmd)
+        if ts_match:
+            ts_vals = [v for v in ts_match.group(2).split(',') if v]
+            while len(ts_vals) > 1 and ts_vals[-1] in ('0', '0.0'):
+                ts_vals.pop()
+            trimmed = ','.join(ts_vals)
+            cmd = cmd[:ts_match.start(2)] + trimmed + cmd[ts_match.end(2):]
+            model["cmd"] = cmd
 
     if num_active_gpus >= total_gpus:
-        # Remove env restriction if present
-        if env_start_idx >= 0:
-            lines = lines[:env_start_idx] + lines[env_end_idx:]
+        # Remove env restriction
+        if "env" in model:
+            del model["env"]
             logger.info(f"Removed CUDA_VISIBLE_DEVICES for {model_id} (all GPUs active)")
     else:
-        new_env_lines = [
-            f'{field_indent}env:',
-            f'{list_indent}- "CUDA_VISIBLE_DEVICES={cuda_vis}"',
-        ]
-        if env_start_idx >= 0:
-            # Replace existing env section
-            lines = lines[:env_start_idx] + new_env_lines + lines[env_end_idx:]
-        else:
-            # Insert before ttl (or at end of block)
-            insert_at = ttl_idx if ttl_idx >= 0 else end
-            lines = lines[:insert_at] + new_env_lines + lines[insert_at:]
+        model["env"] = [f"CUDA_VISIBLE_DEVICES={cuda_vis}"]
         logger.info(f"Set CUDA_VISIBLE_DEVICES={cuda_vis} for {model_id}")
 
-    config_path.write_text('\n'.join(lines), encoding='utf-8')
+    _write_llamaswap_yaml(config_path, config)
     return True
 
 
@@ -525,36 +482,18 @@ def update_llamaswap_kv_cache_quant(
         logger.error(f"llama-swap config not found: {config_path}")
         return False
 
-    content = config_path.read_text(encoding='utf-8')
-    lines = content.split('\n')
-    in_model_block = False
-    changed = False
-    result_lines = []
-
-    for line in lines:
-        if re.match(rf'^\s+{re.escape(model_id)}\s*:', line):
-            in_model_block = True
-        elif in_model_block and re.match(r'^\s+\w', line) and not line.strip().startswith(('cmd:', 'ttl:', '-')):
-            in_model_block = False
-
-        if in_model_block and 'cmd:' in line:
-            if '-ctk ' in line:
-                line = re.sub(r'-ctk\s+\S+', f'-ctk {kv_quant}', line)
-                changed = True
-            else:
-                line = line.replace(' --port', f' -ctk {kv_quant} --port')
-                changed = True
-            if '-ctv ' in line:
-                line = re.sub(r'-ctv\s+\S+', f'-ctv {kv_quant}', line)
-            else:
-                line = line.replace(' --port', f' -ctv {kv_quant} --port')
-
-        result_lines.append(line)
-
-    if not changed:
+    config = _read_llamaswap_yaml(config_path)
+    cmd = _get_model_cmd(config, model_id)
+    if cmd is None:
+        logger.error(f"Model {model_id} not found in llama-swap config")
         return False
 
-    config_path.write_text('\n'.join(result_lines), encoding='utf-8')
+    new_cmd = _inject_kv_quant(cmd, kv_quant)
+    if new_cmd == cmd:
+        return False
+
+    _set_model_cmd(config, model_id, new_cmd)
+    _write_llamaswap_yaml(config_path, config)
     logger.info(f"Updated llama-swap config: {model_id} → KV cache {kv_quant}")
     return True
 
@@ -573,33 +512,23 @@ def update_llamaswap_reasoning_format(
     if not config_path.exists():
         return False
 
-    content = config_path.read_text(encoding='utf-8')
-    lines = content.split('\n')
-    in_model_block = False
-    changed = False
-    result_lines = []
-
-    for line in lines:
-        if re.match(rf'^\s+{re.escape(model_id)}\s*:', line):
-            in_model_block = True
-        elif in_model_block and re.match(r'^\s+\w', line) and not line.strip().startswith(('cmd:', 'ttl:', '-')):
-            in_model_block = False
-
-        if in_model_block and 'cmd:' in line:
-            if '--reasoning-format ' in line:
-                if f'--reasoning-format {fmt}' not in line:
-                    line = re.sub(r'--reasoning-format\s+\S+', f'--reasoning-format {fmt}', line)
-                    changed = True
-            else:
-                line = line.replace(' --jinja', f' --jinja --reasoning-format {fmt}')
-                changed = True
-
-        result_lines.append(line)
-
-    if not changed:
+    config = _read_llamaswap_yaml(config_path)
+    cmd = _get_model_cmd(config, model_id)
+    if cmd is None:
         return False
 
-    config_path.write_text('\n'.join(result_lines), encoding='utf-8')
+    if '--reasoning-format ' in cmd:
+        if f'--reasoning-format {fmt}' in cmd:
+            return False  # Already correct
+        new_cmd = re.sub(r'--reasoning-format\s+\S+', f'--reasoning-format {fmt}', cmd)
+    else:
+        new_cmd = cmd.replace(' --jinja', f' --jinja --reasoning-format {fmt}')
+
+    if new_cmd == cmd:
+        return False
+
+    _set_model_cmd(config, model_id, new_cmd)
+    _write_llamaswap_yaml(config_path, config)
     logger.info(f"Updated llama-swap config: {model_id} → --reasoning-format {fmt}")
     return True
 
@@ -612,18 +541,17 @@ def _remove_llamaswap_kv_cache_quant(config_path: Path, model_id: str) -> bool:
     if not config_path.exists():
         return False
 
-    content = config_path.read_text(encoding='utf-8')
-
-    def _strip_kv_flags(line: str) -> str:
-        line = re.sub(r'\s*-ctk\s+\S+', '', line)
-        return re.sub(r'\s*-ctv\s+\S+', '', line)
-
-    new_content = _transform_model_block(content, model_id, _strip_kv_flags)
-
-    if new_content == content:
+    config = _read_llamaswap_yaml(config_path)
+    cmd = _get_model_cmd(config, model_id)
+    if cmd is None:
         return False
 
-    config_path.write_text(new_content, encoding='utf-8')
+    new_cmd = _inject_kv_quant(cmd, "f16")  # "f16" removes -ctk/-ctv
+    if new_cmd == cmd:
+        return False
+
+    _set_model_cmd(config, model_id, new_cmd)
+    _write_llamaswap_yaml(config_path, config)
     logger.info(f"Removed KV cache quant from llama-swap config: {model_id}")
     return True
 
@@ -949,6 +877,10 @@ def _find_max_ngl_for_context(
     return best_ngl, best_info
 
 
+# Module-level env for current calibration model (set by calibrate_llamacpp_model)
+_calibration_env: Optional[Dict[str, str]] = None
+
+
 async def _start_llama_server(
     full_cmd: str,
     context: int,
@@ -960,6 +892,9 @@ async def _start_llama_server(
     Replaces -c and --port/${PORT} in the original command,
     preserving all GPU flags (tensor-split, flash-attn, mlock etc.).
     Injects -np 1 and -fit off for stable calibration on Pascal GPUs.
+
+    Uses _calibration_env (set by calibrate_llamacpp_model) for model-specific
+    environment variables like CUDA_VISIBLE_DEVICES.
 
     Args:
         ngl: If set, replaces -ngl value in cmd (for hybrid calibration)
@@ -991,12 +926,18 @@ async def _start_llama_server(
     log_message(f"llama-server cmd: {cmd_str}", category="stats")
 
     try:
+        # Build process environment: inherit current env + model-specific overrides
+        proc_env = os.environ.copy()
+        if _calibration_env:
+            proc_env.update(_calibration_env)
+
         # Write stdout to tempfile (parseable for VRAM info, readable after crash)
         fd, log_path = tempfile.mkstemp(suffix='.log', prefix='llama_')
         process = subprocess.Popen(
             args,
             stdout=fd,
             stderr=subprocess.STDOUT,  # merge stderr into stdout — llama-server logs to stdout
+            env=proc_env,
             preexec_fn=lambda: signal.signal(signal.SIGINT, signal.SIG_IGN)
         )
         os.close(fd)  # Popen has dup'd the fd
@@ -1302,6 +1243,7 @@ async def _binary_search_context(
     cuda_gpu_names: list[str] | None = None,
     run_thinking_test: bool = False,
     safety_margin: int = LLAMACPP_VRAM_SAFETY_MARGIN,
+    start_iteration: int = 0,
 ) -> AsyncIterator[str | int | dict]:
     """Binary search for max fitting context between low and high.
 
@@ -1310,16 +1252,15 @@ async def _binary_search_context(
     If run_thinking_test=True, piggybacks the thinking test on the first
     server start where the server comes up (regardless of fits).
     Yields {"thinking_result": bool} once captured.
-    cuda_gpu_names: if provided, reformat detail in CUDA order.
+    Yields {"iteration": int} with final counter for continuous numbering.
     """
     result = 0
-    iteration = 0
+    iteration = start_iteration
     thinking_done = False
 
     while high - low > precision:
         mid = (low + high) // 2
         iteration += 1
-        yield f"[{iteration}] Testing {format_number(mid)}..."
         want_thinking = run_thinking_test and not thinking_done
         mid_fits, _, mid_gpus, thinking_result = await _test_context_physical(
             full_cmd, mid, port, run_thinking_test=want_thinking,
@@ -1328,15 +1269,15 @@ async def _binary_search_context(
         if thinking_result is not None:
             thinking_done = True
             yield {"thinking_result": thinking_result}
-        mid_detail = _format_cuda_detail(mid_gpus, cuda_gpu_names) if mid_gpus else "VRAM unknown"
+        yield _fmt_test(iteration, mid, fits=mid_fits, gpu_list=mid_gpus,
+                        cuda_gpu_names=cuda_gpu_names)
         if mid_fits:
             low = mid
             result = mid
-            yield f"✓ {format_number(mid)} fits ({mid_detail})"
         else:
             high = mid
-            yield f"✗ {format_number(mid)} doesn't fit ({mid_detail})"
 
+    yield {"iteration": iteration}
     yield result
 
 
@@ -1385,17 +1326,15 @@ async def _physical_context_search(
         return
 
     # 2. Physical test at projected context
-    label = "native" if projected == native_context else "projected"
-    yield f"[1] Testing {label}: {format_number(projected)}..."
+    iteration = 0
+    ctx_label = "native" if projected == native_context else "projected"
 
     thinking_result: Optional[bool] = None
+    iteration += 1
     fits, detail, gpu_list, thinking_result = await _test_context_physical(
         full_cmd, projected, port, run_thinking_test=run_thinking_test,
         safety_margin=safety_margin,
     )
-    if thinking_result is not None:
-        yield f"Reasoning: {'yes' if thinking_result else 'no'}"
-
     # Build CUDA-ordered gpu_list by matching fit-params GPU names with nvidia-smi
     cuda_gpu_list: list[dict[str, Any]] = []
     if gpu_list and per_gpu_low:
@@ -1417,13 +1356,10 @@ async def _physical_context_search(
 
     # CUDA-ordered GPU names for consistent formatting everywhere
     cuda_gpu_names = [g["name"] for g in cuda_gpu_list]
-    detail = _format_cuda_detail(cuda_gpu_list)
 
     # Show first test result
-    if fits:
-        yield f"✓ {format_number(projected)} fits ({detail})"
-    else:
-        yield f"✗ {format_number(projected)} doesn't fit ({detail})"
+    yield _fmt_test(iteration, projected, fits=fits, gpu_list=cuda_gpu_list,
+                    cuda_gpu_names=cuda_gpu_names, label=ctx_label)
 
     # 3. Multi-GPU layer optimization (N-GPU compatible).
     # A) Native context fits: speed-optimize (push layers to fastest GPU).
@@ -1480,23 +1416,22 @@ async def _physical_context_search(
                     )
                     est_split = _format_layer_split(est_ratios)
                     est_cmd = _replace_tensor_split(full_cmd, est_ratios)
-                    yield f"[2] Testing {est_split} at ctx={format_number(native_context)}..."
+                    iteration += 1
                     est_fits, _, est_gpus, _ = await _test_context_physical(
                         est_cmd, native_context, port,
                         safety_margin=safety_margin,
                     )
-                    est_detail = _format_cuda_detail(est_gpus) if est_gpus else "OOM"
+                    yield _fmt_test(iteration, native_context, fits=est_fits,
+                                    gpu_list=est_gpus, cuda_gpu_names=cuda_gpu_names,
+                                    split=est_split)
 
                     if est_fits:
-                        yield f"✓ {est_split} fits ({est_detail})"
                         best_cuda0 = estimated_max
                         low, high = estimated_max + 1, total_layers
                     else:
-                        yield f"✗ {est_split} doesn't fit ({est_detail})"
                         low, high = layers[0] + 1, estimated_max - 1
 
                     # Binary search for exact boundary
-                    iteration = 2
                     while low <= high:
                         mid = (low + high) // 2
                         mid_ratios = _build_layer_split(
@@ -1505,18 +1440,17 @@ async def _physical_context_search(
                         mid_split = _format_layer_split(mid_ratios)
                         mid_cmd = _replace_tensor_split(full_cmd, mid_ratios)
                         iteration += 1
-                        yield f"[{iteration}] Testing {mid_split} at ctx={format_number(native_context)}..."
                         mid_fits, _, mid_gpus, _ = await _test_context_physical(
                             mid_cmd, native_context, port,
                             safety_margin=safety_margin,
                         )
-                        mid_detail = _format_cuda_detail(mid_gpus) if mid_gpus else "OOM"
+                        yield _fmt_test(iteration, native_context, fits=mid_fits,
+                                        gpu_list=mid_gpus, cuda_gpu_names=cuda_gpu_names,
+                                        split=mid_split)
                         if mid_fits:
                             best_cuda0 = mid
-                            yield f"✓ {mid_split} fits ({mid_detail})"
                             low = mid + 1
                         else:
-                            yield f"✗ {mid_split} doesn't fit ({mid_detail})"
                             high = mid - 1
 
                     if best_cuda0 > layers[0]:
@@ -1562,7 +1496,7 @@ async def _physical_context_search(
 
                     await wait_for_vram_stable(max_wait_seconds=10.0)
 
-                    yield f"[2] Testing balanced: {format_number(projected)}..."
+                    iteration += 1
                     want_thinking = run_thinking_test and thinking_result is None
                     bal_fits, _, new_gpu_list, bal_thinking = await _test_context_physical(
                         full_cmd, projected, port, run_thinking_test=want_thinking,
@@ -1570,7 +1504,6 @@ async def _physical_context_search(
                     )
                     if bal_thinking is not None:
                         thinking_result = bal_thinking
-                        yield f"Reasoning: {'yes' if thinking_result else 'no'}"
 
                     # Update cuda_gpu_list with fresh VRAM measurements
                     if new_gpu_list:
@@ -1581,16 +1514,15 @@ async def _physical_context_search(
                     new_free = [g["free_mb"] for g in cuda_gpu_list]
                     new_min_free = min(new_free)
                     new_diff = max(new_free) - new_min_free
-                    bal_detail = _format_cuda_detail(cuda_gpu_list)
 
                     if new_min_free > old_min_free:
                         balance_adjusted = True
                         current_ratios = new_ratios
                         fits = bal_fits  # Update — balance may have made it fit
-                        if bal_fits:
-                            yield f"✓ {format_number(projected)} fits ({bal_detail})"
-                        else:
-                            yield f"✗ {format_number(projected)} doesn't fit ({bal_detail})"
+                        yield _fmt_test(iteration, projected, fits=bal_fits,
+                                        gpu_list=cuda_gpu_list,
+                                        cuda_gpu_names=cuda_gpu_names,
+                                        split=new_layers_fmt, label="balanced")
                         if new_diff < 1024:
                             yield f"Balance OK (diff {format_number(new_diff)} MB)"
                     else:
@@ -1599,10 +1531,10 @@ async def _physical_context_search(
                             full_cmd, [float(n) for n in layers],
                         )
                         fits = bal_fits  # Update — may still fit at old split
-                        if bal_fits:
-                            yield f"✓ {format_number(projected)} fits ({bal_detail})"
-                        else:
-                            yield f"✗ {format_number(projected)} doesn't fit ({bal_detail})"
+                        yield _fmt_test(iteration, projected, fits=bal_fits,
+                                        gpu_list=cuda_gpu_list,
+                                        cuda_gpu_names=cuda_gpu_names,
+                                        split=new_layers_fmt, label="balanced")
                         yield (
                             f"Layer shift didn't improve balance "
                             f"(min free {format_number(new_min_free)} vs "
@@ -1638,26 +1570,31 @@ async def _physical_context_search(
                 cuda_gpu_names=cuda_gpu_names,
                 run_thinking_test=run_thinking_test and thinking_result is None,
                 safety_margin=safety_margin,
+                start_iteration=iteration,
             ):
                 if isinstance(item, int):
                     if item > result:
                         result = item
-                elif isinstance(item, dict) and item.get("thinking_result") is not None:
-                    thinking_result = item["thinking_result"]
-                    yield f"Reasoning: {'yes' if thinking_result else 'no'}"
+                elif isinstance(item, dict):
+                    if item.get("iteration") is not None:
+                        iteration = item["iteration"]
+                    if item.get("thinking_result") is not None:
+                        thinking_result = item["thinking_result"]
                 else:
                     yield item
             # If close to native context, test it directly (binary search
             # precision may skip the last few hundred tokens)
             if result < native_context and native_context - result <= 1024:
-                yield f"[{len(cuda_gpu_names) + 1}] Testing native: {format_number(native_context)}..."
-                native_fits, _, _, _ = await _test_context_physical(
+                iteration += 1
+                native_fits, _, native_gpus, _ = await _test_context_physical(
                     full_cmd, native_context, port,
                     safety_margin=safety_margin,
                 )
+                yield _fmt_test(iteration, native_context, fits=native_fits,
+                                gpu_list=native_gpus, cuda_gpu_names=cuda_gpu_names,
+                                label="native")
                 if native_fits:
                     result = native_context
-                    yield f"✓ {format_number(native_context)} fits — full native context!"
 
             if result > projected:
                 yield (
@@ -1687,20 +1624,23 @@ async def _physical_context_search(
         search_low = max(CALIBRATION_MIN_CONTEXT, projected - step_down)
 
         # Quick step-down: find a context that fits
-        step_iteration = 0
+        step_fits = False
+        last_tested = -1
         while search_low >= CALIBRATION_MIN_CONTEXT:
-            step_iteration += 1
-            yield f"[{step_iteration}] Testing {format_number(search_low)}..."
+            # Prevent testing the same value twice (infinite loop guard)
+            if search_low == last_tested:
+                break
+            last_tested = search_low
+            iteration += 1
             step_fits, _, step_gpus, _ = await _test_context_physical(
                 full_cmd, search_low, port,
                 run_thinking_test=run_thinking_test and thinking_result is None,
                 safety_margin=safety_margin,
             )
-            step_detail = _format_cuda_detail(step_gpus) if step_gpus else "OOM"
+            yield _fmt_test(iteration, search_low, fits=step_fits,
+                            gpu_list=step_gpus, cuda_gpu_names=cuda_gpu_names)
             if step_fits:
-                yield f"✓ {format_number(search_low)} fits ({step_detail})"
                 break
-            yield f"✗ {format_number(search_low)} doesn't fit ({step_detail})"
             # Step down another 10%
             search_low = max(CALIBRATION_MIN_CONTEXT, search_low - step_down)
 
@@ -1715,12 +1655,15 @@ async def _physical_context_search(
             cuda_gpu_names=cuda_gpu_names,
             run_thinking_test=run_thinking_test and thinking_result is None,
             safety_margin=safety_margin,
+            start_iteration=iteration,
         ):
             if isinstance(item, int):
                 result = item
-            elif isinstance(item, dict) and item.get("thinking_result") is not None:
-                thinking_result = item["thinking_result"]
-                yield f"Reasoning: {'yes' if thinking_result else 'no'}"
+            elif isinstance(item, dict):
+                if item.get("iteration") is not None:
+                    iteration = item["iteration"]
+                if item.get("thinking_result") is not None:
+                    thinking_result = item["thinking_result"]
             else:
                 yield item
 
@@ -1733,36 +1676,17 @@ async def _physical_context_search(
     yield result
 
 
-def _get_model_block_bounds(content: str, model_id: str) -> tuple[int, int]:
-    """Return (start_line, end_line) for a model's YAML block (end is exclusive).
+def _copy_model_entry(config: dict, source_id: str, target_id: str) -> dict | None:
+    """Deep-copy a model entry from config and return it under a new name.
 
-    Returns (-1, -1) if model not found.
+    Returns None if source model not found. The copy is NOT inserted
+    into config — caller decides where to put it.
     """
-    lines = content.split('\n')
-    start = -1
-    model_indent = 0
-
-    for i, line in enumerate(lines):
-        m = re.match(rf'^(\s+){re.escape(model_id)}\s*:', line)
-        if m:
-            start = i
-            model_indent = len(m.group(1))
-            break
-
-    if start < 0:
-        return -1, -1
-
-    # End: next non-blank, non-comment line at same (or less) indentation
-    for i in range(start + 1, len(lines)):
-        line = lines[i]
-        stripped = line.strip()
-        if not stripped or stripped.startswith('#'):
-            continue
-        current_indent = len(line) - len(line.lstrip())
-        if current_indent <= model_indent:
-            return start, i
-
-    return start, len(lines)
+    models = config.get("models", {})
+    source = models.get(source_id)
+    if not source:
+        return None
+    return copy.deepcopy(source)
 
 
 def add_llamaswap_speed_variant(
@@ -1777,9 +1701,8 @@ def add_llamaswap_speed_variant(
     """
     Add (or update) a -speed variant YAML entry in the llama-swap config.
 
-    Copies the existing model_id block, renames it to model_id-speed,
-    and replaces tensor-split and -c with speed values.
-    Preserves all other YAML formatting from the original block.
+    Copies the existing model_id dict entry, modifies cmd for speed,
+    and writes it as model_id-speed.
 
     Args:
         speed_split_cuda0: Layer count for fastest GPU (CUDA0)
@@ -1794,43 +1717,21 @@ def add_llamaswap_speed_variant(
         logger.error(f"llama-swap config not found: {config_path}")
         return False
 
-    content = config_path.read_text(encoding='utf-8')
-    lines = content.split('\n')
+    config = _read_llamaswap_yaml(config_path)
+    speed_model_id = f"{model_id}-speed"
 
-    # Find original model block
-    orig_start, orig_end = _get_model_block_bounds(content, model_id)
-    if orig_start < 0:
+    speed_entry = _copy_model_entry(config, model_id, speed_model_id)
+    if speed_entry is None:
         logger.error(f"Model {model_id} not found in llama-swap config")
         return False
 
-    orig_block_lines = lines[orig_start:orig_end]
-
-    # Trim trailing blank lines and section comments so they don't get duplicated
-    while orig_block_lines and (
-        not orig_block_lines[-1].strip()
-        or orig_block_lines[-1].strip().startswith('#')
-    ):
-        orig_block_lines.pop()
-
-    # Build speed block by modifying the original block's text
-    speed_model_id = f"{model_id}-speed"
-    speed_block_text = '\n'.join(orig_block_lines)
-
-    # Rename: replace only the model key (first occurrence)
-    speed_block_text = re.sub(
-        rf'^(\s+){re.escape(model_id)}\s*:',
-        rf'\g<1>{speed_model_id}:',
-        speed_block_text,
-        count=1,
-        flags=re.MULTILINE,
-    )
+    cmd = speed_entry.get("cmd", "")
 
     # Replace tensor-split with calibrated layer counts (N-GPU compatible)
-    original_ratios = _parse_tensor_split_ratios(speed_block_text)
+    original_ratios = _parse_tensor_split_ratios(cmd)
     total_layers = speed_split_cuda0 + speed_split_rest
 
     if num_gpus > 0 and num_gpus < len(original_ratios):
-        # Reduced GPU count: distribute among active GPUs, zero out the rest
         active_ratios = original_ratios[:num_gpus]
         speed_ratios = _build_layer_split(total_layers, speed_split_cuda0, active_ratios)
     else:
@@ -1840,26 +1741,33 @@ def add_llamaswap_speed_variant(
     while len(speed_ratios) > 1 and speed_ratios[-1] == 0:
         speed_ratios.pop()
 
-    speed_block_text = _ensure_tensor_split(speed_block_text, speed_ratios)
-    speed_block_text = re.sub(r'-c\s+\d+', f'-c {speed_context}', speed_block_text)
+    cmd = _ensure_tensor_split(cmd, speed_ratios)
+    cmd = re.sub(r'-c\s+\d+', f'-c {speed_context}', cmd)
+    cmd = _inject_kv_quant(cmd, kv_quant)
+    speed_entry["cmd"] = cmd
 
-    # Set KV cache quantization (independent from base variant)
-    speed_block_text = _inject_kv_quant(speed_block_text, kv_quant)
+    # Set CUDA_VISIBLE_DEVICES if fewer GPUs than base
+    if num_gpus > 0 and num_gpus < len(original_ratios):
+        cuda_vis = ",".join(str(i) for i in range(num_gpus))
+        speed_entry["env"] = [f"CUDA_VISIBLE_DEVICES={cuda_vis}"]
 
-    speed_block_lines = speed_block_text.split('\n')
+    # Insert/update in models dict
+    models = config["models"]
+    already_exists = speed_model_id in models
 
-    # Check if speed variant already exists — update it in-place
-    speed_start, speed_end = _get_model_block_bounds(content, speed_model_id)
-    if speed_start >= 0:
-        new_lines = lines[:speed_start] + speed_block_lines + lines[speed_end:]
-        config_path.write_text('\n'.join(new_lines), encoding='utf-8')
-        logger.info(f"Updated speed variant in llama-swap config: {speed_model_id}")
+    if already_exists:
+        models[speed_model_id] = speed_entry
     else:
-        # Insert right after the original block
-        new_lines = lines[:orig_end] + speed_block_lines + lines[orig_end:]
-        config_path.write_text('\n'.join(new_lines), encoding='utf-8')
-        logger.info(f"Added speed variant to llama-swap config: {speed_model_id}")
+        # Insert right after original model (preserving order)
+        new_models: dict[str, Any] = {}
+        for key, val in models.items():
+            new_models[key] = val
+            if key == model_id:
+                new_models[speed_model_id] = speed_entry
+        config["models"] = new_models
 
+    _write_llamaswap_yaml(config_path, config)
+    logger.info(f"{'Updated' if already_exists else 'Added'} speed variant: {speed_model_id}")
     return True
 
 
@@ -1868,72 +1776,55 @@ def add_llamaswap_tts_variant(
     model_id: str,
     tts_context: int,
     tts_backend: str,
+    kv_quant: str = "f16",
 ) -> bool:
     """
     Add (or update) a TTS variant YAML entry in the llama-swap config.
 
-    Copies the existing model_id block, renames it to model_id-tts-{backend},
-    and replaces -c with the TTS-calibrated context. Preserves all other
-    settings (tensor-split, ngl, etc.) from the original block.
+    Copies the existing model_id dict entry, modifies cmd context and KV quantization,
+    and writes it as model_id-tts-{backend}.
 
     Args:
         config_path: Path to llama-swap config.yaml
         model_id: Base model ID (e.g. "GPT-OSS-120B-A5B-UD-Q8_K_XL")
         tts_context: Calibrated context with TTS VRAM reservation
         tts_backend: TTS backend name ("xtts" or "moss")
+        kv_quant: KV cache quantization level ("f16", "q8_0", "q4_0")
     """
     if not config_path.exists():
         logger.error(f"llama-swap config not found: {config_path}")
         return False
 
-    content = config_path.read_text(encoding='utf-8')
-    lines = content.split('\n')
+    config = _read_llamaswap_yaml(config_path)
+    tts_model_id = f"{model_id}-tts-{tts_backend}"
 
-    # Find original model block
-    orig_start, orig_end = _get_model_block_bounds(content, model_id)
-    if orig_start < 0:
+    tts_entry = _copy_model_entry(config, model_id, tts_model_id)
+    if tts_entry is None:
         logger.error(f"Model {model_id} not found in llama-swap config")
         return False
 
-    orig_block_lines = lines[orig_start:orig_end]
+    cmd = tts_entry.get("cmd", "")
+    cmd = re.sub(r'-c\s+\d+', f'-c {tts_context}', cmd)
+    cmd = _inject_kv_quant(cmd, kv_quant)
+    tts_entry["cmd"] = cmd
 
-    # Trim trailing blank lines and section comments
-    while orig_block_lines and (
-        not orig_block_lines[-1].strip()
-        or orig_block_lines[-1].strip().startswith('#')
-    ):
-        orig_block_lines.pop()
+    # Insert/update in models dict
+    models = config["models"]
+    already_exists = tts_model_id in models
 
-    # Build TTS block by modifying the original block's text
-    tts_model_id = f"{model_id}-tts-{tts_backend}"
-    tts_block_text = '\n'.join(orig_block_lines)
-
-    # Rename: replace only the model key (first occurrence)
-    tts_block_text = re.sub(
-        rf'^(\s+){re.escape(model_id)}\s*:',
-        rf'\g<1>{tts_model_id}:',
-        tts_block_text,
-        count=1,
-        flags=re.MULTILINE,
-    )
-
-    # Replace -c with TTS-calibrated context
-    tts_block_text = re.sub(r'-c\s+\d+', f'-c {tts_context}', tts_block_text)
-
-    tts_block_lines = tts_block_text.split('\n')
-
-    # Check if TTS variant already exists — update in-place
-    tts_start, tts_end = _get_model_block_bounds(content, tts_model_id)
-    if tts_start >= 0:
-        new_lines = lines[:tts_start] + tts_block_lines + lines[tts_end:]
-        config_path.write_text('\n'.join(new_lines), encoding='utf-8')
-        logger.info(f"Updated TTS variant in llama-swap config: {tts_model_id}")
+    if already_exists:
+        models[tts_model_id] = tts_entry
     else:
-        # Insert right after the original block
-        new_lines = lines[:orig_end] + tts_block_lines + lines[orig_end:]
-        config_path.write_text('\n'.join(new_lines), encoding='utf-8')
-        logger.info(f"Added TTS variant to llama-swap config: {tts_model_id}")
+        # Insert right after original model (preserving order)
+        new_models: dict[str, Any] = {}
+        for key, val in models.items():
+            new_models[key] = val
+            if key == model_id:
+                new_models[tts_model_id] = tts_entry
+        config["models"] = new_models
 
+    _write_llamaswap_yaml(config_path, config)
+    logger.info(f"{'Updated' if already_exists else 'Added'} TTS variant: {tts_model_id}")
     return True
 
 
@@ -2163,20 +2054,20 @@ async def _optimize_gpu_layers(
     est_cmd = _replace_tensor_split(base_cmd, est_padded)
 
     iteration = 1
-    yield f"[{phase_label}.{iteration}] Testing {est_split} at ctx={format_number(target_context)}..."
     est_fits, _, est_gpus, _ = await _test_context_physical(
         est_cmd, target_context, port,
         safety_margin=safety_margin,
     )
-    est_detail = _format_cuda_detail(est_gpus) if est_gpus else "OOM"
+    yield _fmt_test(
+        f"{phase_label}.{iteration}", target_context,
+        fits=est_fits, gpu_list=est_gpus, split=est_split,
+    )
 
     if est_fits:
-        yield f"✓ {est_split} fits ({est_detail})"
         low = estimated_max + 1
         high = total_layers
         best_cuda0 = estimated_max
     else:
-        yield f"✗ {est_split} doesn't fit ({est_detail})"
         low = initial_layers[0] + 1
         high = estimated_max - 1
         best_cuda0 = initial_layers[0]
@@ -2189,19 +2080,19 @@ async def _optimize_gpu_layers(
         mid_cmd = _replace_tensor_split(base_cmd, mid_padded)
 
         iteration += 1
-        yield f"[{phase_label}.{iteration}] Testing {mid_split} at ctx={format_number(target_context)}..."
         mid_fits, _, mid_gpus, _ = await _test_context_physical(
             mid_cmd, target_context, port,
             safety_margin=safety_margin,
         )
-        mid_detail = _format_cuda_detail(mid_gpus) if mid_gpus else "OOM"
+        yield _fmt_test(
+            f"{phase_label}.{iteration}", target_context,
+            fits=mid_fits, gpu_list=mid_gpus, split=mid_split,
+        )
 
         if mid_fits:
             best_cuda0 = mid
-            yield f"✓ {mid_split} fits ({mid_detail})"
             low = mid + 1
         else:
-            yield f"✗ {mid_split} doesn't fit ({mid_detail})"
             high = mid - 1
 
     best_active = _build_layer_split(total_layers, best_cuda0, active_ratios)
@@ -2234,7 +2125,8 @@ async def _calibrate_speed_split(
                           (FASTEST_FIRST order).
 
     Yields progress messages.
-    Final: "__SPEED__:{cuda0},{rest},{context},{num_gpus},{kv_quant}" or "__SPEED__:0".
+    Final: "__SPEED__:{layer_split},{context},{num_gpus},{kv_quant}" or "__SPEED__:0".
+    layer_split is the full distribution e.g. "26:11:11:0".
     """
     from .gguf_utils import get_gguf_total_size
 
@@ -2315,7 +2207,6 @@ async def _calibrate_speed_split(
             yield opt_result
 
     best_split = _format_layer_split(padded_ratios)
-    best_layers_cuda0 = int(padded_ratios[0])
 
     # ── Phase B: Maximize context with independent KV chain ──
     # Start with f16, fall back to q8_0 if f16 < MIN_USEFUL
@@ -2361,52 +2252,47 @@ async def _calibrate_speed_split(
 
         if projected_ctx <= target_context:
             # Can't go beyond minimum — just verify target_context works
-            yield f"[B1] Verifying {best_split} at ctx={format_number(target_context)}..."
             fits, _, gpu_list, _ = await _test_context_physical(
                 kv_cmd, target_context, port,
                 safety_margin=safety_margin,
             )
+            yield _fmt_test("B1", target_context, fits=fits, gpu_list=gpu_list, split=best_split)
             if fits:
-                detail = _format_cuda_detail(gpu_list) if gpu_list else ""
-                yield f"✓ {best_split} at ctx={format_number(target_context)} ({detail})"
                 kv_best = target_context
         else:
-            # Physical test at projected context
+            # 90%-first approach: start conservative, then binary search up
+            start_ctx = int(projected_ctx * 0.9)
+            start_ctx = max(start_ctx, target_context)
+
             iteration = 1
-            yield f"[B{iteration}] Testing {best_split} at ctx={format_number(projected_ctx)}..."
-            fits, test_detail, test_gpu_list, _ = await _test_context_physical(
-                kv_cmd, projected_ctx, port,
+            fits, _, gpu_list, _ = await _test_context_physical(
+                kv_cmd, start_ctx, port,
                 safety_margin=safety_margin,
             )
-            detail = _format_cuda_detail(test_gpu_list) if test_gpu_list else test_detail
-
-            # 10% steps + binary fine-tuning
-            step = max(projected_ctx // 10, 4096)
+            yield _fmt_test(f"B{iteration}", start_ctx, fits=fits, gpu_list=gpu_list, split=best_split)
 
             if fits:
-                kv_best = projected_ctx
-                yield f"✓ {best_split} at ctx={format_number(projected_ctx)} ({detail})"
-
-                # Walk upward in 10% steps until fail or native reached
-                last_pass = projected_ctx
+                kv_best = start_ctx
+                # Binary search between start_ctx and native_context
+                last_pass = start_ctx
                 first_fail = native_context
-                probe = projected_ctx + step
+
+                # Walk upward in 10% steps to find the fail point
+                step = max(projected_ctx // 10, 4096)
+                probe = start_ctx + step
                 while probe < native_context:
                     iteration += 1
-                    yield f"[B{iteration}] Testing {best_split} at ctx={format_number(probe)}..."
                     probe_fits, _, probe_gpus, _ = await _test_context_physical(
                         kv_cmd, probe, port,
                         safety_margin=safety_margin,
                     )
-                    probe_detail = _format_cuda_detail(probe_gpus) if probe_gpus else "VRAM unknown"
+                    yield _fmt_test(f"B{iteration}", probe, fits=probe_fits, gpu_list=probe_gpus, split=best_split)
                     if probe_fits:
                         last_pass = probe
                         kv_best = probe
-                        yield f"✓ {best_split} at ctx={format_number(probe)} ({probe_detail})"
                         probe += step
                     else:
                         first_fail = probe
-                        yield f"✗ {best_split} at ctx={format_number(probe)} ({probe_detail})"
                         break
 
                 # Binary fine-tuning
@@ -2421,31 +2307,27 @@ async def _calibrate_speed_split(
                         elif isinstance(item, str):
                             yield item
             else:
-                yield f"✗ {best_split} at ctx={format_number(projected_ctx)} ({detail})"
-
                 # Walk downward in 10% steps until pass or target reached
+                step = max(projected_ctx // 10, 4096)
                 first_pass = 0
-                probe = projected_ctx - step
+                probe = start_ctx - step
                 while probe > target_context:
                     iteration += 1
-                    yield f"[B{iteration}] Testing {best_split} at ctx={format_number(probe)}..."
                     probe_fits, _, probe_gpus, _ = await _test_context_physical(
                         kv_cmd, probe, port,
                         safety_margin=safety_margin,
                     )
-                    probe_detail = _format_cuda_detail(probe_gpus) if probe_gpus else "VRAM unknown"
+                    yield _fmt_test(f"B{iteration}", probe, fits=probe_fits, gpu_list=probe_gpus, split=best_split)
                     if probe_fits:
                         first_pass = probe
                         kv_best = probe
-                        yield f"✓ {best_split} at ctx={format_number(probe)} ({probe_detail})"
                         break
                     else:
-                        yield f"✗ {best_split} at ctx={format_number(probe)} ({probe_detail})"
                         probe -= step
 
                 # Binary fine-tuning
                 if first_pass > 0:
-                    last_fail = min(probe + step, projected_ctx)
+                    last_fail = min(probe + step, start_ctx)
                     if last_fail - first_pass > LLAMACPP_CALIBRATION_PRECISION:
                         async for item in _binary_search_context(
                             kv_cmd, port, first_pass, last_fail,
@@ -2484,8 +2366,7 @@ async def _calibrate_speed_split(
         ctx_info = f", ctx={format_number(best_context)}"
     kv_info = f", KV={best_speed_kv}" if best_speed_kv != "f16" else ""
     yield f"Speed split found: {best_split}{ctx_info}{kv_info} ({min_gpus}/{total_gpus} GPUs)"
-    best_rest = total_layers - best_layers_cuda0
-    yield f"__SPEED__:{best_layers_cuda0},{best_rest},{best_context},{min_gpus},{best_speed_kv}"
+    yield f"__SPEED__:{best_split},{best_context},{min_gpus},{best_speed_kv}"
 
 
 async def _calibrate_hybrid(
@@ -2765,7 +2646,7 @@ async def calibrate_llamacpp_model(
             model_size_gb=model_size_gb, ngl=ngl, mode=mode,
             vram_per_gpu=vram_per_gpu, ram_cpu_mb=ram_cpu_mb,
         )
-        yield f"__RESULT__:{ctx}:{ngl}:{mode}:{'thinks' if thinks else 'nothink'}"
+        yield f"__RESULT__:{ctx}:{ngl}:{mode}:{'thinks' if thinks else 'nothink'}:{best_kv}"
 
     # === Skip GPU-only for oversized models ===
     # Model weights alone exceed total VRAM → GPU-only is impossible,

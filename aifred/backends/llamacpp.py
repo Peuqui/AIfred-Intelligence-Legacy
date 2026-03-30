@@ -339,6 +339,7 @@ class LlamaCppBackend(OpenAICompatibleBackend):
     async def calibrate_max_context_generator(
         self,
         model: str,
+        dry_run: bool = False,
     ) -> AsyncIterator[str]:
         """
         Calibrate maximum context for a llama.cpp model via binary search.
@@ -367,13 +368,20 @@ class LlamaCppBackend(OpenAICompatibleBackend):
             yield "__RESULT__:0:0:error"
             return
 
-        async for msg in calibrate_llamacpp_model(
-            model_id=model,
-            gguf_path=gguf_path,
-            full_cmd=model_info["full_cmd"],
-            config_path=LLAMASWAP_CONFIG_PATH,
-        ):
-            yield msg
+        # Set model-specific env (e.g. CUDA_VISIBLE_DEVICES) for calibration
+        import aifred.lib.llamacpp_calibration as _cal_mod
+        _cal_mod._calibration_env = model_info.get("env") or None
+
+        try:
+            async for msg in calibrate_llamacpp_model(
+                model_id=model,
+                gguf_path=gguf_path,
+                full_cmd=model_info["full_cmd"],
+                config_path=None if dry_run else LLAMASWAP_CONFIG_PATH,
+            ):
+                yield msg
+        finally:
+            _cal_mod._calibration_env = None
 
     async def test_thinking_capability(self, model: str) -> bool:
         """

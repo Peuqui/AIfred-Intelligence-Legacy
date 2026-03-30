@@ -890,7 +890,7 @@ MOSS_TTS_VRAM_MB = 13700  # MB (measured peak 13609 + 91 buffer)
 # Docker-Compose paths (for container start/stop)
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 XTTS_DOCKER_COMPOSE_PATH = os.path.join(_PROJECT_ROOT, "docker", "xtts", "docker-compose.yml")
-MOSS_TTS_DOCKER_COMPOSE_PATH = os.path.join(_PROJECT_ROOT, "docker", "moss-tts", "docker-compose.8b.yml")
+MOSS_TTS_DOCKER_COMPOSE_PATH = os.path.join(_PROJECT_ROOT, "docker", "moss-tts", "docker-compose.yml")
 
 # Empirical ratio: MB of VRAM per context token
 # Based on KV cache measurements and research:
