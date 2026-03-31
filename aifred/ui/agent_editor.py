@@ -1,8 +1,9 @@
-"""Agent Editor Modal for AIfred UI.
+"""Settings Modal for AIfred UI.
 
-Fullscreen overlay with two tabs:
-- Config: Agent dropdown → Metadata + TTS + Prompts (all on one page)
+Fullscreen overlay with three tabs:
+- Agents: Agent dropdown → Metadata + TTS + Prompts (all on one page)
 - Memory: Agent dropdown → Memory entries with type filter
+- Database: System collections (Research Cache, Documents) browse + delete
 
 All text inputs are pure DOM elements (no per-keystroke state updates).
 Values are read from DOM only on save/tab-switch/lang-switch via call_script.
@@ -35,7 +36,7 @@ _INPUT_STYLE = {
 # ============================================================
 
 def _editor_header() -> rx.Component:
-    """Shared header with tab navigation for the agent editor modal."""
+    """Shared header with tab navigation for the settings modal."""
     return rx.vstack(
         rx.hstack(
             rx.icon("settings", size=24, color="#FFD700"),
@@ -61,7 +62,7 @@ def _editor_header() -> rx.Component:
         rx.hstack(
             rx.button(
                 rx.icon("users", size=14),
-                rx.cond(AIState.ui_language == "de", "Agenten", "Agents"),
+                t("tab_agents"),
                 on_click=AIState.set_agent_editor_tab("config"),
                 size="2",
                 variant=rx.cond(
@@ -76,7 +77,7 @@ def _editor_header() -> rx.Component:
             ),
             rx.button(
                 rx.icon("brain", size=14),
-                "Memory",
+                t("tab_memory"),
                 on_click=AIState.set_agent_editor_tab("memory"),
                 size="2",
                 variant=rx.cond(
@@ -91,7 +92,7 @@ def _editor_header() -> rx.Component:
             ),
             rx.button(
                 rx.icon("database", size=14),
-                rx.cond(AIState.ui_language == "de", "Datenbank", "Database"),
+                t("tab_database"),
                 on_click=AIState.set_agent_editor_tab("database"),
                 size="2",
                 variant=rx.cond(
@@ -187,7 +188,7 @@ def _config_view() -> rx.Component:
                         # New agent mode — show ID input instead
                         rx.el.input(
                             id="editor-agent-id",
-                            placeholder="Agent-ID (z.B. dr_house)",
+                            placeholder=t("agent_editor_agent_id_placeholder"),
                             auto_complete="off",
                             spell_check=False,
                             **_INPUT_STYLE,
@@ -203,7 +204,7 @@ def _config_view() -> rx.Component:
                             color_scheme="green",
                             cursor="pointer",
                         ),
-                        content=rx.cond(AIState.ui_language == "de", "Neuer Agent", "New Agent"),
+                        content=t("agent_editor_new"),
                     ),
                     # Delete button (only custom agents, not during create)
                     rx.cond(
@@ -222,8 +223,8 @@ def _config_view() -> rx.Component:
                             ),
                             content=rx.cond(
                                 AIState.editor_delete_confirm == AIState.editor_agent_id,
-                                rx.cond(AIState.ui_language == "de", "Wirklich löschen?", "Really delete?"),
-                                rx.cond(AIState.ui_language == "de", "Agent löschen", "Delete agent"),
+                                t("agent_editor_really_delete"),
+                                t("agent_editor_delete_agent"),
                             ),
                         ),
                     ),
@@ -244,8 +245,8 @@ def _config_view() -> rx.Component:
                             ),
                             content=rx.cond(
                                 AIState.editor_memory_confirm == AIState.editor_agent_id,
-                                rx.cond(AIState.ui_language == "de", "Wirklich vergessen?", "Really forget?"),
-                                rx.cond(AIState.ui_language == "de", "Erinnerungen löschen", "Clear memories"),
+                                t("agent_editor_really_forget"),
+                                t("agent_editor_clear_memories"),
                             ),
                         ),
                     ),
@@ -373,7 +374,7 @@ def _config_view() -> rx.Component:
                         # Header: Title + Enabled toggle
                         rx.hstack(
                             rx.text(
-                                "\U0001f50a Sprachausgabe",
+                                "\U0001f50a ", t("agent_editor_tts_title"),
                                 color="#FFD700",
                                 font_weight="bold",
                                 font_size="14px",
@@ -396,7 +397,7 @@ def _config_view() -> rx.Component:
                             width="100%",
                             align="center",
                         ),
-                        # Backend + Voice (equal width)
+                        # Backend + Voice
                         rx.hstack(
                             rx.text("Backend", font_size="11px", color="#aaa", flex_shrink="0"),
                             rx.box(
@@ -615,7 +616,7 @@ def _memory_entry_row(entry: rx.Var) -> rx.Component:
         rx.cond(
             entry["sources"] != "",
             rx.vstack(
-                rx.text("Quellen:", font_size="12px", color="#888", font_weight="600", padding_top="8px"),
+                rx.text(t("memory_sources"), font_size="12px", color="#888", font_weight="600", padding_top="8px"),
                 rx.foreach(
                     entry["sources"].split("\n"),  # type: ignore[union-attr]
                     _source_link,
@@ -681,11 +682,7 @@ def _memory_view() -> rx.Component:
                             AIState.memory_browser_agent_display,
                         ),
                         on_change=AIState.select_memory_agent,
-                        placeholder=rx.cond(
-                            AIState.ui_language == "de",
-                            "Agent wählen...",
-                            "Select agent...",
-                        ),
+                        placeholder=t("agent_editor_select_agent"),
                         size="2",
                         width="100%",
                     ),
@@ -699,7 +696,7 @@ def _memory_view() -> rx.Component:
                     AIState.memory_browser_agent != "",
                     rx.hstack(
                         rx.button(
-                            rx.cond(AIState.ui_language == "de", "Alle", "All"),
+                            t("memory_filter_all"),
                             on_click=AIState.set_memory_filter("all"),
                             size="1",
                             variant=rx.cond(AIState.memory_browser_filter == "all", "solid", "soft"),
@@ -738,11 +735,7 @@ def _memory_view() -> rx.Component:
                 rx.cond(
                     AIState.memory_browser_agent == "",
                     rx.text(
-                        rx.cond(
-                            AIState.ui_language == "de",
-                            "Wähle einen Agenten um seine Erinnerungen zu sehen.",
-                            "Select an agent to view their memories.",
-                        ),
+                        t("memory_select_hint"),
                         color="#888",
                         font_size="13px",
                         padding_top="20px",
@@ -759,11 +752,7 @@ def _memory_view() -> rx.Component:
                             width="100%",
                         ),
                         rx.text(
-                            rx.cond(
-                                AIState.ui_language == "de",
-                                "Keine Einträge gefunden.",
-                                "No entries found.",
-                            ),
+                            t("memory_no_entries"),
                             color="#888",
                             font_size="13px",
                         ),
@@ -843,7 +832,7 @@ def _database_view() -> rx.Component:
                             # Confirmation: two buttons
                             rx.hstack(
                                 rx.button(
-                                    rx.cond(AIState.ui_language == "de", "Wirklich loeschen?", "Really delete?"),
+                                    t("db_really_delete"),
                                     on_click=AIState.clear_db_collection,
                                     size="1",
                                     variant="solid",
@@ -851,7 +840,7 @@ def _database_view() -> rx.Component:
                                     cursor="pointer",
                                 ),
                                 rx.button(
-                                    rx.cond(AIState.ui_language == "de", "Abbrechen", "Cancel"),
+                                    t("db_cancel"),
                                     on_click=AIState.confirm_clear_db,
                                     size="1",
                                     variant="soft",
@@ -870,11 +859,7 @@ def _database_view() -> rx.Component:
                                     color_scheme="red",
                                     cursor="pointer",
                                 ),
-                                content=rx.cond(
-                                    AIState.ui_language == "de",
-                                    "Alle Eintraege loeschen",
-                                    "Clear all entries",
-                                ),
+                                content=t("db_clear_all"),
                             ),
                         ),
                     ),
@@ -883,15 +868,11 @@ def _database_view() -> rx.Component:
                     align="center",
                 ),
 
-                # Entries list (reuses same card layout as memory browser)
+                # Entries list
                 rx.cond(
                     AIState.db_browser_collection == "",
                     rx.text(
-                        rx.cond(
-                            AIState.ui_language == "de",
-                            "Waehle eine Collection um deren Inhalt zu sehen.",
-                            "Select a collection to view its contents.",
-                        ),
+                        t("db_select_hint"),
                         color="#888",
                         font_size="13px",
                         padding_top="20px",
@@ -908,11 +889,7 @@ def _database_view() -> rx.Component:
                             width="100%",
                         ),
                         rx.text(
-                            rx.cond(
-                                AIState.ui_language == "de",
-                                "Keine Eintraege.",
-                                "No entries.",
-                            ),
+                            t("db_no_entries"),
                             color="#888",
                             font_size="13px",
                         ),
@@ -990,7 +967,7 @@ def _db_entry_row(entry: rx.Var) -> rx.Component:
 # ============================================================
 
 def agent_editor_modal() -> rx.Component:
-    """Agent Editor fullscreen overlay modal."""
+    """Settings modal fullscreen overlay."""
     return rx.cond(
         AIState.agent_editor_open,
         rx.box(
