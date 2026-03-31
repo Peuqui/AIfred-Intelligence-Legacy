@@ -1356,10 +1356,7 @@ class AgentConfigMixin(rx.State, mixin=True):
         self._load_memory_collections()
 
         # Pre-select AIfred's memory (or first available agent)
-        agent_collections = [
-            c for c in self.memory_browser_collections
-            if c["agent_id"] != "research_cache"
-        ]
+        agent_collections = self.memory_browser_collections
         if agent_collections:
             # Prefer AIfred
             aifred_col = next((c for c in agent_collections if c["agent_id"] == "aifred"), None)
@@ -1385,11 +1382,8 @@ class AgentConfigMixin(rx.State, mixin=True):
 
     @rx.var(deps=["memory_browser_collections"], auto_deps=False)
     def memory_agent_dropdown_options(self) -> List[str]:
-        """Agent-only dropdown labels (without Research Cache)."""
-        return [
-            col["display_name"] for col in self.memory_browser_collections
-            if col["agent_id"] != "research_cache"
-        ]
+        """Agent dropdown labels for memory browser."""
+        return [col["display_name"] for col in self.memory_browser_collections]
 
     @rx.var(deps=["memory_browser_entries", "memory_browser_filter"], auto_deps=False)
     def filtered_memory_entries(self) -> List[Dict[str, str]]:
@@ -1531,23 +1525,14 @@ class AgentConfigMixin(rx.State, mixin=True):
                         "display_name": display_name,
                         "count": str(col.count()),
                     })
-                elif col.name == "research_cache":
-                    collections.append({
-                        "name": col.name,
-                        "agent_id": "research_cache",
-                        "display_name": "🔍 Research Cache",
-                        "count": str(col.count()),
-                    })
         except Exception as e:
             self.add_debug(f"❌ Memory browser error: {e}")  # type: ignore[attr-defined]
 
-        # Research Cache first, then agents sorted alphabetically
-        research = [c for c in collections if c["agent_id"] == "research_cache"]
-        agents = sorted(
-            [c for c in collections if c["agent_id"] != "research_cache"],
+        # Agents sorted alphabetically (Research Cache moved to Database tab)
+        self.memory_browser_collections = sorted(
+            collections,
             key=lambda c: c["agent_id"],
         )
-        self.memory_browser_collections = research + agents
 
     def browse_memory_agent(self, agent_id: str) -> None:
         """Load all entries for a specific agent's memory collection."""

@@ -659,28 +659,11 @@ def _memory_view() -> rx.Component:
         # Scrollable content
         rx.box(
             rx.vstack(
-                # Research Cache + Agent dropdown side by side
+                # Agent dropdown
                 rx.hstack(
-                    rx.button(
-                        rx.icon("search", size=14),
-                        " Research Cache",
-                        on_click=AIState.select_memory_agent("\U0001f50d Research Cache"),
-                        size="2",
-                        variant=rx.cond(
-                            AIState.memory_browser_agent == "research_cache",
-                            "solid", "soft",
-                        ),
-                        color_scheme="orange",
-                        cursor="pointer",
-                        flex_shrink="0",
-                    ),
                     rx.select(
                         AIState.memory_agent_dropdown_options,
-                        value=rx.cond(
-                            AIState.memory_browser_agent == "research_cache",
-                            "",
-                            AIState.memory_browser_agent_display,
-                        ),
+                        value=AIState.memory_browser_agent_display,
                         on_change=AIState.select_memory_agent,
                         placeholder=t("agent_editor_select_agent"),
                         size="2",
