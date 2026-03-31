@@ -788,12 +788,7 @@ def _merge_prompt_layers(
     # Layer 4: Task prompt (always)
     parts.append(task_prompt)
 
-    # Layer 5: Anti-hallucination (always)
-    anti_halluc = load_prompt('shared/anti_hallucination', lang=lang)
-    if anti_halluc:
-        parts.append(anti_halluc)
-
-    # Layer 5b: Security boundary (only for external channel contexts)
+    # Layer 5: Security boundary (only for external channel contexts)
     if source != "browser":
         sec_boundary = load_prompt('shared/security_boundary', lang=lang)
         if sec_boundary:
@@ -804,22 +799,18 @@ def _merge_prompt_layers(
         rag_instructions = load_prompt('shared/rag_context', lang=lang, context=rag_context)
         parts.append(rag_instructions)
 
-    # Layer 7+7b: Moved to Layer 10 (after Personality) — see below
-
-    # Layer 8: Memory instructions (when memory active)
+    # Layer 7: Memory instructions (when memory active)
     if memory:
         mem_instructions = load_memory_instructions(lang)
         if mem_instructions:
             parts.append(mem_instructions)
 
-    # Layer 9: Personality (if enabled)
+    # Layer 8: Personality (if enabled)
     personality = load_personality(agent, lang)
     if personality:
         parts.append(personality)
 
-    # Layer 10: Tool instructions — LAST so LLM prioritizes tool use over personality!
-    # LLMs tend to follow instructions at the end more strongly.
-    # Personality was causing models to generate text instead of calling tools.
+    # Layer 9: Tool instructions — near the end so LLM prioritizes tool use
     if tools:
         tool_instructions = load_prompt('shared/tool_instructions', lang=lang)
         if tool_instructions:
@@ -832,6 +823,11 @@ def _merge_prompt_layers(
                 instr = p.get_prompt_instructions(lang)
                 if instr:
                     parts.append(instr)
+
+    # Layer 10: Anti-hallucination (always, LAST — recency bias for date grounding)
+    anti_halluc = load_prompt('shared/anti_hallucination', lang=lang)
+    if anti_halluc:
+        parts.append(anti_halluc)
 
     return "\n\n".join(parts)
 
