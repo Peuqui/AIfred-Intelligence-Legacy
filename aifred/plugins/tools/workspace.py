@@ -92,8 +92,8 @@ class WorkspacePlugin:
             executor=_list_files,
         ))
 
-        async def _read_file(filename: str, pages: str = "") -> str:
-            """Read a file from data/documents/. PDFs support page selection."""
+        async def _read_file(filename: str, pages: str = "", line_start: int = 0, line_end: int = 0) -> str:
+            """Read a file from data/documents/. PDFs support page selection, text files support line ranges."""
             file_path, error = _safe_resolve(filename)
             if error:
                 return json.dumps({"error": error})
@@ -138,17 +138,32 @@ class WorkspacePlugin:
                 else:
                     # Text-based files
                     try:
-                        text = file_path.read_text(encoding="utf-8")
+                        all_text = file_path.read_text(encoding="utf-8")
                     except UnicodeDecodeError:
                         import chardet
                         raw = file_path.read_bytes()
                         detected = chardet.detect(raw)
-                        text = raw.decode(detected.get("encoding", "utf-8"), errors="replace")
+                        all_text = raw.decode(detected.get("encoding", "utf-8"), errors="replace")
 
-                    log_message(f"  read_file: {file_path.name} ({len(text)} chars)")
+                    lines = all_text.split("\n")
+                    total_lines = len(lines)
+
+                    # Apply line range if specified
+                    if line_start > 0 or line_end > 0:
+                        start = max(0, line_start - 1)  # 1-based to 0-based
+                        end = line_end if line_end > 0 else total_lines
+                        text = "\n".join(lines[start:end])
+                        range_info = f"lines {start + 1}-{min(end, total_lines)} of {total_lines}"
+                    else:
+                        text = all_text
+                        range_info = f"all {total_lines} lines"
+
+                    log_message(f"  read_file: {file_path.name} ({range_info}, {len(text)} chars)")
                     return json.dumps({
                         "filename": file_path.name,
                         "type": file_path.suffix.lower().lstrip("."),
+                        "total_lines": total_lines,
+                        "range": range_info,
                         "size_kb": round(file_path.stat().st_size / 1024, 1),
                         "content": text,
                     }, ensure_ascii=False)
@@ -161,8 +176,9 @@ class WorkspacePlugin:
             tier=TIER_READONLY,
             description=(
                 "Read a file from the documents directory. "
-                "For PDFs, you can specify pages (e.g. '1-5' or '3,7'). "
-                "Returns the full text content."
+                "For PDFs, specify pages (e.g. '1-5'). "
+                "For text files, specify line_start/line_end to read a portion. "
+                "IMPORTANT: For large files (>100 KB), ALWAYS use line_start/line_end to read in chunks!"
             ),
             parameters={
                 "type": "object",
@@ -175,6 +191,16 @@ class WorkspacePlugin:
                         "type": "string",
                         "description": "Page range for PDFs: '3', '1-5', '3,7,10-12' (empty = all pages)",
                         "default": "",
+                    },
+                    "line_start": {
+                        "type": "integer",
+                        "description": "First line to read (1-based). Use with line_end for large text files.",
+                        "default": 0,
+                    },
+                    "line_end": {
+                        "type": "integer",
+                        "description": "Last line to read (inclusive). 0 = until end of file.",
+                        "default": 0,
                     },
                 },
                 "required": ["filename"],
@@ -241,6 +267,106 @@ class WorkspacePlugin:
                 "required": ["filename", "content"],
             },
             executor=_write_file,
+        ))
+
+        async def _create_folder(folder_name: str) -> str:
+            """Create a subfolder in data/documents/."""
+            folder_path, error = _safe_resolve(folder_name)
+            if error:
+                return json.dumps({"error": error})
+            if not folder_path:
+                return json.dumps({"error": f"Invalid path: {folder_name}"})
+            if folder_path.exists():
+                return json.dumps({"error": f"Already exists: {folder_name}"})
+
+            folder_path.mkdir(parents=True)
+            log_message(f"📁 create_folder: {folder_name}")
+            return json.dumps({"created": folder_name})
+
+        tools.append(Tool(
+            name="create_folder",
+            tier=TIER_WRITE_DATA,
+            description="Create a subfolder in the documents directory.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "folder_name": {
+                        "type": "string",
+                        "description": "Folder path relative to documents/ (e.g. 'projects/2026')",
+                    },
+                },
+                "required": ["folder_name"],
+            },
+            executor=_create_folder,
+        ))
+
+        async def _delete_file(filename: str) -> str:
+            """Delete a file from data/documents/."""
+            file_path, error = _safe_resolve(filename)
+            if error:
+                return json.dumps({"error": error})
+            if not file_path or not file_path.exists():
+                return json.dumps({"error": f"File not found: {filename}"})
+            if file_path.is_dir():
+                return json.dumps({"error": f"Is a directory, not a file: {filename}. Use delete_folder."})
+
+            size_kb = round(file_path.stat().st_size / 1024, 1)
+            file_path.unlink()
+            log_message(f"🗑️ delete_file: {filename} ({size_kb} KB)")
+            return json.dumps({"deleted": filename, "size_kb": size_kb})
+
+        tools.append(Tool(
+            name="delete_file",
+            tier=TIER_WRITE_SYSTEM,
+            description="Delete a file from the documents directory. Cannot delete folders.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "filename": {
+                        "type": "string",
+                        "description": "Filename relative to documents/ (e.g. 'old_notes.txt')",
+                    },
+                },
+                "required": ["filename"],
+            },
+            executor=_delete_file,
+        ))
+
+        async def _delete_folder(folder_name: str) -> str:
+            """Delete an empty folder from data/documents/."""
+            folder_path, error = _safe_resolve(folder_name)
+            if error:
+                return json.dumps({"error": error})
+            if not folder_path or not folder_path.exists():
+                return json.dumps({"error": f"Folder not found: {folder_name}"})
+            if not folder_path.is_dir():
+                return json.dumps({"error": f"Not a directory: {folder_name}. Use delete_file."})
+
+            items = list(folder_path.iterdir())
+            if items:
+                return json.dumps({
+                    "error": f"Folder not empty ({len(items)} items). Delete contents first."
+                })
+
+            folder_path.rmdir()
+            log_message(f"🗑️ delete_folder: {folder_name}")
+            return json.dumps({"deleted": folder_name})
+
+        tools.append(Tool(
+            name="delete_folder",
+            tier=TIER_WRITE_SYSTEM,
+            description="Delete an empty folder from the documents directory. Folder must be empty.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "folder_name": {
+                        "type": "string",
+                        "description": "Folder path relative to documents/ (e.g. 'old_project')",
+                    },
+                },
+                "required": ["folder_name"],
+            },
+            executor=_delete_folder,
         ))
 
         # ============================================================
@@ -418,6 +544,12 @@ class WorkspacePlugin:
             return f"📄 {tool_args.get('filename', '')}"
         elif tool_name == "write_file":
             return f"📝 {tool_args.get('filename', '')}"
+        elif tool_name == "create_folder":
+            return f"📁 {tool_args.get('folder_name', '')}"
+        elif tool_name == "delete_file":
+            return f"🗑️ {tool_args.get('filename', '')}"
+        elif tool_name == "delete_folder":
+            return f"🗑️ {tool_args.get('folder_name', '')}"
         elif tool_name == "index_document":
             return f"📥 {tool_args.get('filename', '')}"
         elif tool_name == "search_documents":
