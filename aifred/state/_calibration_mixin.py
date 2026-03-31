@@ -494,6 +494,7 @@ class CalibrationMixin(rx.State, mixin=True):
                     tts_num_gpus = 0
                     async for progress_msg in backend.calibrate_max_context_generator(  # type: ignore[attr-defined]
                         calibration_model_id, dry_run=True, min_kv=calibration_kv,
+                        skip_thinking=thinking_tested,
                     ):
                         if progress_msg.startswith("__RESULT__:"):
                             r = _parse_calibration_result(progress_msg)

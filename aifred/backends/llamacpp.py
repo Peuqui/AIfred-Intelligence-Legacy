@@ -341,6 +341,7 @@ class LlamaCppBackend(OpenAICompatibleBackend):
         model: str,
         dry_run: bool = False,
         min_kv: str = "f16",
+        skip_thinking: bool = False,
     ) -> AsyncIterator[str]:
         """
         Calibrate maximum context for a llama.cpp model via binary search.
@@ -378,13 +379,53 @@ class LlamaCppBackend(OpenAICompatibleBackend):
             env = env or None
         _cal_mod._calibration_env = env
 
-        # Strip tensor-split and split-mode from cmd — calibration determines
-        # GPU distribution itself. Without -ts, llama.cpp auto-distributes
-        # based on available VRAM per GPU (best default for heterogeneous setups).
+        # Replace tensor-split with proportional default based on GPU VRAM.
+        # CUDA_DEVICE_ORDER=FASTEST_FIRST is set during calibration, so
+        # CUDA0 = largest GPU. Proportional split ensures correct distribution
+        # for llama-fit-params projections. Phase 1b optimizes from here.
         import re
         cal_cmd = model_info["full_cmd"]
-        cal_cmd = re.sub(r'\s+(-ts|--tensor-split)\s+[\d.,]+', '', cal_cmd)
-        cal_cmd = re.sub(r'\s+(-sm|--split-mode)\s+\w+', '', cal_cmd)
+        from ..lib.gpu_utils import get_all_gpus_memory_info
+        cal_gpu_info = get_all_gpus_memory_info()
+        if cal_gpu_info and cal_gpu_info["gpu_count"] > 1:
+            # Sort by FREE VRAM descending = FASTEST_FIRST CUDA order.
+            # Uses free (not total) VRAM so TTS-variant calibrations get
+            # correct distribution when TTS model occupies GPU memory.
+            # TTS reserve: subtracted from the GPU with most VRAM usage (= TTS GPU)
+            # to account for TTS inference spikes.
+            from ..lib.config import LLAMACPP_TTS_VRAM_RESERVE
+            per_gpu = sorted(cal_gpu_info["per_gpu"], key=lambda g: g["free_mb"], reverse=True)
+            per_gpu_free = [g["free_mb"] for g in per_gpu]
+
+            # Find TTS GPU: largest gap between total and free (most VRAM consumed by TTS)
+            if dry_run:  # TTS variant calibration — apply reserve
+                max_usage = 0
+                tts_gpu_idx = -1
+                for i, g in enumerate(per_gpu):
+                    usage = g["total_mb"] - g["free_mb"]
+                    if usage > max_usage:
+                        max_usage = usage
+                        tts_gpu_idx = i
+                if tts_gpu_idx >= 0 and max_usage > LLAMACPP_TTS_VRAM_RESERVE:
+                    per_gpu_free[tts_gpu_idx] -= LLAMACPP_TTS_VRAM_RESERVE
+
+            default_ratios = per_gpu_free
+            default_ts = ",".join(str(r) for r in default_ratios)
+            if re.search(r'(-ts|--tensor-split)\s+[\d.,]+', cal_cmd):
+                cal_cmd = re.sub(r'(-ts|--tensor-split)\s+[\d.,]+', f'-ts {default_ts}', cal_cmd)
+            else:
+                cal_cmd = cal_cmd.replace(' --port', f' -ts {default_ts} -sm layer --port')
+        else:
+            # Single GPU — tensor-split 1
+            if re.search(r'(-ts|--tensor-split)\s+[\d.,]+', cal_cmd):
+                cal_cmd = re.sub(r'(-ts|--tensor-split)\s+[\d.,]+', '-ts 1', cal_cmd)
+            else:
+                cal_cmd = cal_cmd.replace(' --port', ' -ts 1 -sm layer --port')
+
+        # Log the tensor-split being used for this calibration run
+        from ..lib.llamacpp_calibration import _parse_tensor_split_ratios
+        _cal_ts = _parse_tensor_split_ratios(cal_cmd)
+        yield f"Calibration tensor-split: {_cal_ts}, env: {_cal_mod._calibration_env}"
 
         try:
             async for msg in calibrate_llamacpp_model(
@@ -393,6 +434,7 @@ class LlamaCppBackend(OpenAICompatibleBackend):
                 full_cmd=cal_cmd,
                 config_path=None if dry_run else LLAMASWAP_CONFIG_PATH,
                 min_kv=min_kv,
+                skip_thinking=skip_thinking,
             ):
                 yield msg
         finally:

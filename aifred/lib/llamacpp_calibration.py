@@ -64,8 +64,9 @@ def _short_gpu_name(name: str) -> str:
 
 
 def _to_cuda_order(gpu_list: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Sort GPU list by total VRAM descending (= CUDA_DEVICE_ORDER=FASTEST_FIRST).
+    """Sort GPU list by total VRAM descending to match CUDA_DEVICE_ORDER=FASTEST_FIRST.
 
+    Calibration processes set FASTEST_FIRST explicitly, so CUDA0 = largest GPU.
     Adds cuda_id labels (CUDA0, CUDA1, ...) to each GPU dict.
     """
     sorted_gpus = sorted(gpu_list, key=lambda g: g["total_mb"], reverse=True)
@@ -746,6 +747,19 @@ def _calculate_max_context_per_gpu(
             f"(free={free_low} MiB, margin={safety_margin} MiB){marker}"
         )
 
+    # Fallback: if per-GPU bottleneck is at minimum (likely wrong tensor-split),
+    # use total VRAM across all GPUs for a more realistic estimate.
+    if max_ctx <= CALIBRATION_MIN_CONTEXT and combined_rate > 0:
+        total_free_low = sum(per_gpu_low[gid]["free"] for gid in per_gpu_low)
+        total_headroom = total_free_low - safety_margin * len(per_gpu_low)
+        if total_headroom > 0:
+            total_max = ctx_low + int(total_headroom / combined_rate)
+            logger.info(
+                f"Per-GPU bottleneck at minimum — fallback to total VRAM: "
+                f"~{total_max} tokens (total free={total_free_low} MiB)"
+            )
+            return min(total_max, ctx_high), combined_rate
+
     return max_ctx, combined_rate
 
 
@@ -803,8 +817,16 @@ def _fit_params_per_gpu_projection(
     Raises RuntimeError if no GPU projections found in output.
     """
     cmd = _build_fit_params_cmd(full_cmd, gguf_path, context, ngl=ngl)
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+    # Ensure CUDA0 = largest GPU (matches our VRAM-descending sorting)
+    fit_env = os.environ.copy()
+    fit_env["CUDA_DEVICE_ORDER"] = "FASTEST_FIRST"
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=15, env=fit_env)
     output = result.stdout + result.stderr
+    log_message(f"fit-params ctx={context} ngl={ngl}: exit={result.returncode}", category="stats")
+    # Log per-GPU lines and errors for diagnostics
+    for line in output.splitlines():
+        if "CUDA" in line or "total" in line or "free" in line or "error" in line.lower() or "failed" in line.lower():
+            log_message(f"fit-params: {line.strip()}", category="stats")
 
     per_gpu: dict[str, dict[str, Any]] = {}
 
@@ -941,6 +963,7 @@ async def _start_llama_server(
     try:
         # Build process environment: inherit current env + model-specific overrides
         proc_env = os.environ.copy()
+        proc_env["CUDA_DEVICE_ORDER"] = "FASTEST_FIRST"  # CUDA0 = largest GPU
         if _calibration_env:
             proc_env.update(_calibration_env)
 
@@ -1316,37 +1339,45 @@ async def _physical_context_search(
     Yields: progress strings, metadata dict, final int result.
     Dict: {"gpu_list": [...], "balanced_cmd": str | None}
     """
-    # 1. Fit-params projection (2 calls, ~1s total) — skip if hint provided
-    per_gpu_low: dict[str, dict[str, int]] = {}
-    if projected_hint is not None:
-        projected = min(projected_hint, native_context)
-    else:
-        ctx_low = min(CALIBRATION_MIN_CONTEXT, native_context // 2)
-        try:
-            per_gpu_low = _fit_params_per_gpu_projection(
-                full_cmd, gguf_path, ctx_low, ngl=ngl,
-            )
-            per_gpu_high = _fit_params_per_gpu_projection(
-                full_cmd, gguf_path, native_context, ngl=ngl,
-            )
-            projected, rate = _calculate_max_context_per_gpu(
-                per_gpu_low, per_gpu_high, ctx_low, native_context,
-                safety_margin=safety_margin,
-            )
-            projected = min(projected, native_context)
-            yield (
-                f"Projection: {format_number(rate, 4)} MiB/tok, "
-                f"max ~{format_number(projected)} tokens"
-            )
-        except (RuntimeError, OSError, subprocess.TimeoutExpired):
-            yield "VRAM projection failed"
-            yield 0
-            return
+    # 1. Always test native context first — no fit-params projection.
+    # Projection was unreliable with varying VRAM conditions (TTS loaded etc.).
+    # Physical test is the ground truth; binary search refines from there.
+    #
+    # --- DISABLED: fit-params projection ---
+    # per_gpu_low_proj: dict[str, dict[str, int]] = {}
+    # if projected_hint is not None:
+    #     projected = min(projected_hint, native_context)
+    # else:
+    #     ctx_low = min(CALIBRATION_MIN_CONTEXT, native_context // 2)
+    #     try:
+    #         per_gpu_low_proj = _fit_params_per_gpu_projection(
+    #             full_cmd, gguf_path, ctx_low, ngl=ngl,
+    #         )
+    #         per_gpu_high = _fit_params_per_gpu_projection(
+    #             full_cmd, gguf_path, native_context, ngl=ngl,
+    #         )
+    #         projected, rate = _calculate_max_context_per_gpu(
+    #             per_gpu_low_proj, per_gpu_high, ctx_low, native_context,
+    #             safety_margin=safety_margin,
+    #         )
+    #         projected = min(projected, native_context)
+    #         yield (
+    #             f"Projection: {format_number(rate, 4)} MiB/tok, "
+    #             f"max ~{format_number(projected)} tokens"
+    #         )
+    #     except (RuntimeError, OSError, subprocess.TimeoutExpired):
+    #         yield "VRAM projection failed"
+    #         yield 0
+    #         return
+    # --- END DISABLED ---
 
-    # 2. Physical test at projected context
+    per_gpu_low: dict[str, dict[str, int]] = {}
+    projected = native_context
+
+    # 2. Physical test at native context
 
     iteration = 0
-    ctx_label = "native" if projected == native_context else "projected"
+    ctx_label = "native"
 
     thinking_result: Optional[bool] = None
     iteration += 1
@@ -1580,46 +1611,44 @@ async def _physical_context_search(
     if fits:
         result = projected
 
-        # 4a. Binary search upward to native context
-        # Use full range (projected → native) — projections can be far off
-        search_high = native_context
-        if result < search_high:
-            async for item in _binary_search_context(
-                full_cmd, port, result, search_high,
-                cuda_gpu_names=cuda_gpu_names,
-                run_thinking_test=run_thinking_test and thinking_result is None,
+        # 4a. If projected < native, test native directly first
+        if result < native_context:
+            iteration += 1
+            want_thinking = run_thinking_test and thinking_result is None
+            native_fits, _, native_gpus, native_thinking = await _test_context_physical(
+                full_cmd, native_context, port, run_thinking_test=want_thinking,
                 safety_margin=safety_margin,
-                start_iteration=iteration,
-            ):
-                if isinstance(item, int):
-                    if item > result:
-                        result = item
-                elif isinstance(item, dict):
-                    if item.get("iteration") is not None:
-                        iteration = item["iteration"]
-                    if item.get("thinking_result") is not None:
-                        thinking_result = item["thinking_result"]
-                else:
-                    yield item
-            # If close to native context, test it directly (binary search
-            # precision may skip the last few hundred tokens)
-            if result < native_context and native_context - result <= 1024:
-                iteration += 1
-                native_fits, _, native_gpus, _ = await _test_context_physical(
-                    full_cmd, native_context, port,
-                    safety_margin=safety_margin,
-                )
-                yield _fmt_test(iteration, native_context, fits=native_fits,
-                                gpu_list=native_gpus, cuda_gpu_names=cuda_gpu_names,
-                                label="native")
-                if native_fits:
-                    result = native_context
+            )
+            if native_thinking is not None:
+                thinking_result = native_thinking
+            yield _fmt_test(iteration, native_context, fits=native_fits,
+                            gpu_list=native_gpus, cuda_gpu_names=cuda_gpu_names,
+                            label="native")
 
-            if result > projected:
-                yield (
-                    f"Optimum: {format_number(result)} tokens "
-                    f"(+{format_number(result - projected)} vs projection)"
-                )
+            if native_fits:
+                # Native fits — done, no binary search needed
+                result = native_context
+            else:
+                # Native doesn't fit — binary search between projected and native
+                async for item in _binary_search_context(
+                    full_cmd, port, result, native_context,
+                    cuda_gpu_names=cuda_gpu_names,
+                    run_thinking_test=run_thinking_test and thinking_result is None,
+                    safety_margin=safety_margin,
+                    start_iteration=iteration,
+                ):
+                    if isinstance(item, int):
+                        if item > result:
+                            result = item
+                    elif isinstance(item, dict):
+                        if item.get("iteration") is not None:
+                            iteration = item["iteration"]
+                        if item.get("thinking_result") is not None:
+                            thinking_result = item["thinking_result"]
+                    else:
+                        yield item
+
+        # No "Optimum" message needed when native fits — result IS native
     else:
         # Early exit: projected context is already at/below minimum useful.
         # Any downward search result would also be ≤ projected ≤ MIN_USEFUL —
@@ -1635,42 +1664,9 @@ async def _physical_context_search(
 
         yield "Searching downward..."
 
-        # 4b. Narrow binary search downward from projected.
-        # Step down in 10% increments until we find a fitting context,
-        # then binary search within that 10% band. Much faster than
-        # searching the full range from CALIBRATION_MIN_CONTEXT.
-        step_down = max(1024, int(projected * 0.1))
-        search_low = max(CALIBRATION_MIN_CONTEXT, projected - step_down)
-
-        # Quick step-down: find a context that fits
-        step_fits = False
-        last_tested = -1
-        while search_low >= CALIBRATION_MIN_CONTEXT:
-            # Prevent testing the same value twice (infinite loop guard)
-            if search_low == last_tested:
-                break
-            last_tested = search_low
-            iteration += 1
-            step_fits, _, step_gpus, _ = await _test_context_physical(
-                full_cmd, search_low, port,
-                run_thinking_test=run_thinking_test and thinking_result is None,
-                safety_margin=safety_margin,
-            )
-            yield _fmt_test(iteration, search_low, fits=step_fits,
-                            gpu_list=step_gpus, cuda_gpu_names=cuda_gpu_names)
-            if step_fits:
-                break
-            # Step down another 10%
-            search_low = max(CALIBRATION_MIN_CONTEXT, search_low - step_down)
-
-        if not step_fits:
-            yield f"No fitting context found above {format_number(CALIBRATION_MIN_CONTEXT)}"
-            yield 0
-            return
-
-        # Binary search between search_low (fits) and projected (doesn't fit)
+        # 4b. Binary search between minimum useful and native context.
         async for item in _binary_search_context(
-            full_cmd, port, search_low, projected,
+            full_cmd, port, CALIBRATION_MIN_CONTEXT, native_context,
             cuda_gpu_names=cuda_gpu_names,
             run_thinking_test=run_thinking_test and thinking_result is None,
             safety_margin=safety_margin,
@@ -1686,11 +1682,8 @@ async def _physical_context_search(
             else:
                 yield item
 
-        if result:
-            yield (
-                f"Optimum: {format_number(result)} tokens "
-                f"({format_number(projected - result)} below projection)"
-            )
+        if result and result < native_context:
+            yield f"Optimum: {format_number(result)} tokens (native: {format_number(native_context)})"
 
     yield result
 
@@ -1910,6 +1903,16 @@ def _check_single_gpu_fit(
     Returns:
         (cuda_id, gpu_name, modified_cmd) if single-GPU fits, None otherwise.
     """
+    # Quick check: if model doesn't fit on the largest GPU, skip all tests
+    from .gpu_utils import get_all_gpus_memory_info
+    gpu_info = get_all_gpus_memory_info()
+    if gpu_info:
+        max_gpu_mb = max(g["total_mb"] for g in gpu_info["per_gpu"])
+        from .gguf_utils import get_gguf_total_size
+        model_mb = get_gguf_total_size(gguf_path) / (1024 ** 2)
+        if model_mb > max_gpu_mb * 0.95:  # 95% — leave room for KV + overhead
+            return None
+
     for cuda_idx in range(num_gpus):
         # Force all layers onto this GPU, 0 on all others
         ts_parts = ["0"] * num_gpus
@@ -2157,6 +2160,7 @@ async def _calibrate_speed_split(
     per_gpu_total_mb: list[int],
     safety_margin: int = LLAMACPP_VRAM_SAFETY_MARGIN,
     base_kv: str = "f16",
+    per_gpu_free_mb: list[int] | None = None,
 ) -> AsyncIterator[str]:
     """Speed split: use minimum GPUs for fewer boundary transfers.
 
@@ -2170,6 +2174,8 @@ async def _calibrate_speed_split(
     Args:
         per_gpu_total_mb: Total VRAM per GPU in MiB, sorted descending
                           (FASTEST_FIRST order).
+        per_gpu_free_mb: Free VRAM per GPU in MiB (same order). If provided,
+                         used for min_gpus calculation (accounts for TTS VRAM).
 
     Yields progress messages.
     Final: "__SPEED__:{layer_split},{context},{num_gpus},{kv_quant}" or "__SPEED__:0".
@@ -2195,7 +2201,9 @@ async def _calibrate_speed_split(
     mb_per_layer = model_size_mb / total_layers
 
     # ── Step 1: Find minimum GPU count ──
-    min_gpus = _find_min_gpus(model_size_mb, per_gpu_total_mb)
+    # Use free VRAM if available (accounts for TTS models in VRAM)
+    gpu_vram_for_fit = per_gpu_free_mb if per_gpu_free_mb else per_gpu_total_mb
+    min_gpus = _find_min_gpus(model_size_mb, gpu_vram_for_fit)
 
     if min_gpus >= total_gpus:
         yield (
@@ -2547,6 +2555,7 @@ async def calibrate_llamacpp_model(
     port: int = LLAMACPP_CALIBRATION_PORT,
     config_path: Optional[Path] = None,
     min_kv: str = "f16",
+    skip_thinking: bool = False,
 ) -> AsyncIterator[str]:
     """
     Projection-based calibration for a llama.cpp model.
@@ -2766,46 +2775,47 @@ async def calibrate_llamacpp_model(
     kv_levels = all_kv_levels[min_kv_idx:]
     best_result = 0
     best_kv = min_kv
-    thinking_result: Optional[bool] = None
+    thinking_result: Optional[bool] = True if skip_thinking else None
     optimized_ratios: Optional[list[float]] = None
 
     # For single-GPU: pre-set tensor-split ratios for config write-back
     if is_single_gpu:
         optimized_ratios = _parse_tensor_split_ratios(full_cmd)
 
-    # === Fast KV-level selection via fit-params projection ===
-    # One projection per KV level before physical tests. If f16 can't reach
-    # native context AND is below the f16-prefer threshold, skip to q8_0.
-    # The projection is reused as hint for the physical search (no double projection).
+    # === KV-level selection: always test native context physically ===
+    # No fit-params projection — test native directly, binary search if needed.
+    # Projection was unreliable with TTS-loaded VRAM (wrong tensor-split assumptions).
+    #
+    # # --- DISABLED: fit-params projection ---
     from .config import F16_KV_PREFER_THRESHOLD
-    kv_projections: dict[str, Optional[int]] = {}
-    if "f16" in kv_levels:
-        f16_cmd = _inject_kv_quant(phase1_cmd, "f16")
-        ctx_low = min(CALIBRATION_MIN_CONTEXT, native_context // 2)
-        try:
-            per_gpu_low = _fit_params_per_gpu_projection(f16_cmd, gguf_path, ctx_low, ngl=99)
-            per_gpu_high = _fit_params_per_gpu_projection(f16_cmd, gguf_path, native_context, ngl=99)
-            f16_projected, _ = _calculate_max_context_per_gpu(
-                per_gpu_low, per_gpu_high, ctx_low, native_context, safety_margin=safety_margin,
-            )
-            f16_projected = min(f16_projected, native_context)
-        except (RuntimeError, OSError, subprocess.TimeoutExpired):
-            f16_projected = None
-        kv_projections["f16"] = f16_projected
-
-        if f16_projected and f16_projected < native_context:
-            if f16_projected >= F16_KV_PREFER_THRESHOLD:
-                yield (
-                    f"F16 projection: {format_number(f16_projected)} "
-                    f"(≥{format_number(F16_KV_PREFER_THRESHOLD)} threshold) "
-                    f"— using f16 (fast, high quality)"
-                )
-            else:
-                yield (
-                    f"F16 projection: {format_number(f16_projected)} < native {format_number(native_context)} "
-                    f"— skipping f16, starting with q8_0"
-                )
-                kv_levels = all_kv_levels[all_kv_levels.index("q8_0"):]
+    # kv_projections: dict[str, Optional[int]] = {}
+    # if "f16" in kv_levels:
+    #     f16_cmd = _inject_kv_quant(phase1_cmd, "f16")
+    #     ctx_low = min(CALIBRATION_MIN_CONTEXT, native_context // 2)
+    #     try:
+    #         per_gpu_low = _fit_params_per_gpu_projection(f16_cmd, gguf_path, ctx_low, ngl=99)
+    #         per_gpu_high = _fit_params_per_gpu_projection(f16_cmd, gguf_path, native_context, ngl=99)
+    #         f16_projected, _ = _calculate_max_context_per_gpu(
+    #             per_gpu_low, per_gpu_high, ctx_low, native_context, safety_margin=safety_margin,
+    #         )
+    #         f16_projected = min(f16_projected, native_context)
+    #     except (RuntimeError, OSError, subprocess.TimeoutExpired):
+    #         f16_projected = None
+    #     kv_projections["f16"] = f16_projected
+    #
+    #     if f16_projected and f16_projected < native_context:
+    #         if f16_projected >= F16_KV_PREFER_THRESHOLD:
+    #             yield (
+    #                 f"F16 projection: {format_number(f16_projected)} "
+    #                 f"(≥{format_number(F16_KV_PREFER_THRESHOLD)} threshold) "
+    #                 f"— using f16 (fast, high quality)"
+    #             )
+    #         else:
+    #             yield (
+    #                 f"F16 projection: {format_number(f16_projected)} < native {format_number(native_context)} "
+    #                 f"— skipping f16, starting with q8_0"
+    #             )
+    #             kv_levels = all_kv_levels[all_kv_levels.index("q8_0"):]
 
     for kv_level in kv_levels:
         # Skip conditions:
@@ -2818,20 +2828,19 @@ async def calibrate_llamacpp_model(
             break
 
         test_cmd = _inject_kv_quant(phase1_cmd, kv_level)
-        yield f"Phase 1: GPU-only (ngl=99, KV={kv_level})"
+        ts_ratios = _parse_tensor_split_ratios(test_cmd)
+        ts_display = _format_layer_split(ts_ratios) if ts_ratios else "auto"
+        yield f"Phase 1: GPU-only (ngl=99, KV={kv_level}, ts={ts_display})"
 
         result = 0
         skip_speed = False
         # Run thinking test on first KV iteration (piggyback on first successful test)
         run_thinking = thinking_result is None
-        # Reuse projection from pre-check to avoid redundant fit-params calls
-        hint = kv_projections.get(kv_level)
         async for item in _physical_context_search(
             test_cmd, gguf_path, native_context, ngl=99, port=port,
             skip_balance=is_single_gpu,
             run_thinking_test=run_thinking,
             safety_margin=safety_margin,
-            projected_hint=hint,
         ):
             if isinstance(item, int):
                 result = item
@@ -2860,11 +2869,10 @@ async def calibrate_llamacpp_model(
             break
 
         # f16 reached ≥75% of native context — good enough, skip q8_0
-        if kv_level == "f16" and native_context > 0 and best_result >= native_context * 0.75:
+        if kv_level == "f16" and best_result >= F16_KV_PREFER_THRESHOLD:
             yield (
                 f"KV=f16: {format_number(best_result)} tokens "
-                f"({best_result * 100 // native_context}% of native {format_number(native_context)}) "
-                f"— sufficient, skipping q8_0"
+                f"(≥{format_number(F16_KV_PREFER_THRESHOLD)} threshold) — keeping f16"
             )
             break
 
@@ -3031,17 +3039,25 @@ async def calibrate_llamacpp_model(
             else:
                 yield "Phase 2: Speed variant calibration (min-GPU optimization)"
                 await wait_for_vram_stable(max_wait_seconds=10.0)
-                # Build per-GPU VRAM list sorted descending (FASTEST_FIRST)
+                # Build per-GPU VRAM lists sorted descending (FASTEST_FIRST)
                 per_gpu_total_mb = sorted(
                     [g["total_mb"] for g in gpu_info["per_gpu"]],
                     reverse=True,
                 ) if gpu_info and gpu_info.get("per_gpu") else []
+                # Free VRAM for min_gpus (accounts for TTS in VRAM)
+                from .gpu_utils import get_all_gpus_memory_info as _get_gpu_info
+                _fresh_gpu = _get_gpu_info()
+                per_gpu_free_mb = sorted(
+                    [g["free_mb"] for g in _fresh_gpu["per_gpu"]],
+                    reverse=True,
+                ) if _fresh_gpu and _fresh_gpu.get("per_gpu") else None
                 speed_target_ctx = min(MIN_USEFUL_CONTEXT_TOKENS, native_context)
                 async for msg in _calibrate_speed_split(
                     full_cmd, port, speed_target_ctx,
                     native_context, gguf_path, per_gpu_total_mb,
                     safety_margin=safety_margin,
                     base_kv=best_kv,
+                    per_gpu_free_mb=per_gpu_free_mb,
                 ):
                     yield msg
         async for msg in _finish_calibration(best_result, 99, "gpu", thinking_result=thinking_result):

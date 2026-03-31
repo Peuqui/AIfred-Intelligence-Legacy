@@ -882,6 +882,11 @@ MAX_TOOL_ROUNDS = 10
 # cause cudaMalloc OOM → GGML_ASSERT crash during ggml_gallocr reallocation.
 LLAMACPP_VISION_VRAM_RESERVE = 768  # MB (~682 measured + margin)
 
+# TTS VRAM reserve for tensor-split calculation (MB).
+# TTS models can spike during inference (e.g. MOSS-TTS: ~350 MB peak above idle).
+# Subtracted from the TTS GPU's free VRAM before computing tensor-split ratios.
+LLAMACPP_TTS_VRAM_RESERVE = 512  # MB (peak spike + safety buffer)
+
 # XTTS VRAM reservation (MB)
 # Idle: ~2073 MiB, Peak during inference: ~2837 MiB (RTX 8000)
 # Use peak + buffer so LLM context doesn't compete with TTS during generation.
