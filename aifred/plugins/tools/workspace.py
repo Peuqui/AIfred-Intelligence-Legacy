@@ -528,6 +528,100 @@ class WorkspacePlugin:
             executor=_delete_document,
         ))
 
+        # ============================================================
+        # CHROMADB ADMIN TOOLS
+        # ============================================================
+
+        async def _chromadb_stats() -> str:
+            """Show all ChromaDB collections with entry counts."""
+            try:
+                import chromadb
+                from chromadb.config import Settings
+                client = chromadb.HttpClient(
+                    host="localhost", port=8000,
+                    settings=Settings(anonymized_telemetry=False),
+                )
+                client.heartbeat()
+            except Exception as e:
+                return json.dumps({"error": f"ChromaDB not reachable: {e}"})
+
+            collections = client.list_collections()
+            result = []
+            for col in collections:
+                count = col.count()
+                # Get sample metadata for context
+                sample = col.peek(limit=1)
+                meta_keys = list(sample.get("metadatas", [{}])[0].keys()) if sample.get("metadatas") and sample["metadatas"] else []
+                result.append({
+                    "name": col.name,
+                    "entries": count,
+                    "metadata_fields": meta_keys,
+                })
+
+            log_message(f"🗄️ chromadb_stats: {len(result)} collections")
+            return json.dumps({
+                "total_collections": len(result),
+                "collections": result,
+            }, ensure_ascii=False)
+
+        tools.append(Tool(
+            name="chromadb_stats",
+            tier=TIER_READONLY,
+            description=(
+                "Show all ChromaDB vector database collections with entry counts. "
+                "Use this to get an overview of all stored data: documents, research cache, agent memories."
+            ),
+            parameters={"type": "object", "properties": {}},
+            executor=_chromadb_stats,
+        ))
+
+        async def _chromadb_clear(collection_name: str) -> str:
+            """Clear all entries from a ChromaDB collection."""
+            try:
+                import chromadb
+                from chromadb.config import Settings
+                client = chromadb.HttpClient(
+                    host="localhost", port=8000,
+                    settings=Settings(anonymized_telemetry=False),
+                )
+                col = client.get_collection(collection_name)
+            except Exception as e:
+                return json.dumps({"error": f"Collection '{collection_name}' not found: {e}"})
+
+            count = col.count()
+            if count == 0:
+                return json.dumps({"collection": collection_name, "message": "Already empty"})
+
+            all_ids = col.get(include=[])["ids"]
+            col.delete(ids=all_ids)
+
+            log_message(f"🗑️ chromadb_clear: {collection_name} ({count} entries removed)")
+            return json.dumps({
+                "cleared": collection_name,
+                "entries_removed": count,
+            })
+
+        tools.append(Tool(
+            name="chromadb_clear",
+            tier=TIER_WRITE_SYSTEM,
+            description=(
+                "Clear ALL entries from a specific ChromaDB collection. "
+                "Use chromadb_stats first to see available collections and their sizes. "
+                "Common collections: 'research_cache', 'aifred_documents', 'agent_memory_<agent_id>'."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "collection_name": {
+                        "type": "string",
+                        "description": "Exact collection name (e.g. 'research_cache', 'aifred_documents')",
+                    },
+                },
+                "required": ["collection_name"],
+            },
+            executor=_chromadb_clear,
+        ))
+
         return tools
 
     def get_prompt_instructions(self, lang: str) -> str:
@@ -559,6 +653,10 @@ class WorkspacePlugin:
             return t("tool_doc_list", lang=lang)
         elif tool_name == "delete_document":
             return t("tool_doc_delete", lang=lang, filename=tool_args.get("filename", ""))
+        elif tool_name == "chromadb_stats":
+            return "🗄️ ChromaDB"
+        elif tool_name == "chromadb_clear":
+            return f"🗑️ {tool_args.get('collection_name', 'ChromaDB')}"
         return ""
 
 

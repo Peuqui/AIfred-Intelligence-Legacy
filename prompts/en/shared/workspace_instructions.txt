@@ -13,8 +13,13 @@ VECTOR DATABASE (ChromaDB, semantic search):
 - index_document → Index a file into the vector database
 - delete_document → Remove a document from the vector database
 
+CHROMADB MANAGEMENT:
+- chromadb_stats → Show all collections with entry counts
+- chromadb_clear → Clear all entries from a collection
+
 IMPORTANT:
 - list_files shows files on disk, list_indexed shows what's in the vector database
 - Not all files are indexed! Use list_files to see all files
 - Before editing a file: ALWAYS read_file first to see the content
+- For large text files (>100 KB): ALWAYS use line_start/line_end!
 - After editing: Ask if the file should be indexed
