@@ -591,7 +591,8 @@ class ChatMixin(rx.State, mixin=True):
                     if agent_match:
                         tts_agent = agent_match.group(1).lower()
                         ai_response = ai_response[agent_match.end():]
-                    if ai_response and ai_response.strip():
+                    agent_tts_enabled = self.tts_agent_voices.get(tts_agent, {}).get("enabled", True)  # type: ignore[attr-defined]
+                    if ai_response and ai_response.strip() and agent_tts_enabled:
                         await self._generate_tts_for_response(ai_response, agent=tts_agent)  # type: ignore[attr-defined]
                         yield
                     else:
@@ -698,7 +699,8 @@ class ChatMixin(rx.State, mixin=True):
         # ============================================================
         # PHASE 3: TTS streaming init
         # ============================================================
-        if self.enable_tts and self.tts_autoplay and self.tts_streaming_enabled:  # type: ignore[attr-defined]
+        agent_tts_on = self.tts_agent_voices.get("aifred", {}).get("enabled", True)  # type: ignore[attr-defined]
+        if self.enable_tts and self.tts_autoplay and self.tts_streaming_enabled and agent_tts_on:  # type: ignore[attr-defined]
             self._init_streaming_tts(agent="aifred")  # type: ignore[attr-defined]
             from ..lib.api import tts_queue_clear
             tts_queue_clear(self.session_id)  # type: ignore[attr-defined]
