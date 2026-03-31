@@ -962,8 +962,13 @@ class AgentConfigMixin(rx.State, mixin=True):
     # Editor modal visibility
     agent_editor_open: bool = False
 
-    # Editor view mode: "config" or "memory"
+    # Editor view mode: "config", "memory" or "database"
     agent_editor_mode: str = "config"
+
+    # Database browser state (system collections: research_cache, aifred_documents)
+    db_browser_collection: str = ""  # Selected collection name
+    db_browser_entries: List[Dict[str, str]] = []  # Entries for selected collection
+    db_clear_confirm: bool = False  # Confirmation state for clear-all
 
     # Memory browser state
     memory_browser_agent: str = ""  # Selected agent in memory browser ("" = overview)
@@ -1062,10 +1067,14 @@ class AgentConfigMixin(rx.State, mixin=True):
         self.editor_delete_confirm = ""
 
     def set_agent_editor_tab(self, tab: str) -> None:
-        """Switch between config and memory tabs."""
+        """Switch between config, memory and database tabs."""
         self.agent_editor_mode = tab
         if tab == "memory":
             self.open_memory_browser()
+        elif tab == "database":
+            self.db_clear_confirm = False
+            if self.db_browser_collection:
+                self._load_db_entries()
 
     def select_editor_agent(self, label: str):
         """Select an agent from the dropdown by its display label."""
@@ -1391,6 +1400,113 @@ class AgentConfigMixin(rx.State, mixin=True):
             return [e for e in self.memory_browser_entries if e.get("type") == "session_summary"]
         else:  # "agent" — everything the agent stored itself
             return [e for e in self.memory_browser_entries if e.get("type") != "session_summary"]
+
+    def select_db_collection(self, collection_name: str) -> None:
+        """Select a system collection to browse in the database tab."""
+        self.db_browser_collection = collection_name
+        self.db_clear_confirm = False
+        self._load_db_entries()
+
+    def _load_db_entries(self) -> None:
+        """Load entries for the selected system collection."""
+        if not self.db_browser_collection:
+            self.db_browser_entries = []
+            return
+
+        try:
+            import chromadb
+            from chromadb.config import Settings
+            client = chromadb.HttpClient(
+                host="localhost", port=8000,
+                settings=Settings(anonymized_telemetry=False),
+            )
+            col = client.get_collection(self.db_browser_collection)
+            if col.count() == 0:
+                self.db_browser_entries = []
+                return
+
+            data = col.get(include=["metadatas", "documents"])
+        except Exception as e:
+            self.add_debug(f"❌ DB browse error: {e}")  # type: ignore[attr-defined]
+            self.db_browser_entries = []
+            return
+
+        entries: list[dict] = []
+        for i, doc_id in enumerate(data["ids"]):
+            meta = data["metadatas"][i] if data["metadatas"] else {}  # type: ignore[index]
+            doc = data["documents"][i] if data["documents"] else ""  # type: ignore[index]
+
+            if self.db_browser_collection == "research_cache":
+                query_text = doc or ""
+                answer = meta.get("answer", "") if meta else ""
+                volatility = meta.get("volatility", "") if meta else ""
+                date = meta.get("timestamp", "")[:19] if meta else ""
+                entries.append({
+                    "id": doc_id,
+                    "date": date,
+                    "type": volatility or "cache",
+                    "summary": f"Query: {query_text}",
+                    "content": answer[:500] if answer else "",
+                })
+            elif self.db_browser_collection == "aifred_documents":
+                filename = meta.get("filename", "") if meta else ""
+                chunk_idx = meta.get("chunk_index", 0) if meta else 0
+                total = meta.get("total_chunks", 0) if meta else 0
+                date = meta.get("upload_date", "")[:19] if meta else ""
+                entries.append({
+                    "id": doc_id,
+                    "date": date,
+                    "type": "document",
+                    "summary": f"{filename} (chunk {chunk_idx + 1}/{total})",
+                    "content": (doc or "")[:300],
+                })
+
+        entries.sort(key=lambda e: e.get("date", ""), reverse=True)
+        self.db_browser_entries = entries
+
+    def delete_db_entry(self, entry_id: str) -> None:
+        """Delete a single entry from the current system collection."""
+        if not self.db_browser_collection:
+            return
+        try:
+            import chromadb
+            from chromadb.config import Settings
+            client = chromadb.HttpClient(
+                host="localhost", port=8000,
+                settings=Settings(anonymized_telemetry=False),
+            )
+            col = client.get_collection(self.db_browser_collection)
+            col.delete(ids=[entry_id])
+            self.add_debug(f"🗑️ DB entry deleted: {entry_id[:20]}...")  # type: ignore[attr-defined]
+        except Exception as e:
+            self.add_debug(f"❌ Delete failed: {e}")  # type: ignore[attr-defined]
+        self._load_db_entries()
+
+    def confirm_clear_db(self) -> None:
+        """Toggle confirmation state for clearing a collection."""
+        self.db_clear_confirm = not self.db_clear_confirm
+
+    def clear_db_collection(self) -> None:
+        """Clear all entries from the currently selected system collection."""
+        self.db_clear_confirm = False
+        if not self.db_browser_collection:
+            return
+        try:
+            import chromadb
+            from chromadb.config import Settings
+            client = chromadb.HttpClient(
+                host="localhost", port=8000,
+                settings=Settings(anonymized_telemetry=False),
+            )
+            col = client.get_collection(self.db_browser_collection)
+            count = col.count()
+            if count > 0:
+                all_ids = col.get(include=[])["ids"]
+                col.delete(ids=all_ids)
+            self.add_debug(f"🗑️ Cleared {self.db_browser_collection}: {count} entries")  # type: ignore[attr-defined]
+        except Exception as e:
+            self.add_debug(f"❌ Clear failed: {e}")  # type: ignore[attr-defined]
+        self._load_db_entries()
 
     def _load_memory_collections(self) -> None:
         """Load overview of all ChromaDB agent memory collections."""

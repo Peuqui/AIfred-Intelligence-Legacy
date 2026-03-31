@@ -60,8 +60,8 @@ def _editor_header() -> rx.Component:
         # Tab bar
         rx.hstack(
             rx.button(
-                rx.icon("settings-2", size=14),
-                rx.cond(AIState.ui_language == "de", "Konfiguration", "Configuration"),
+                rx.icon("users", size=14),
+                rx.cond(AIState.ui_language == "de", "Agenten", "Agents"),
                 on_click=AIState.set_agent_editor_tab("config"),
                 size="2",
                 variant=rx.cond(
@@ -75,7 +75,7 @@ def _editor_header() -> rx.Component:
                 cursor="pointer",
             ),
             rx.button(
-                rx.icon("database", size=14),
+                rx.icon("brain", size=14),
                 "Memory",
                 on_click=AIState.set_agent_editor_tab("memory"),
                 size="2",
@@ -85,6 +85,21 @@ def _editor_header() -> rx.Component:
                 ),
                 color_scheme=rx.cond(
                     AIState.agent_editor_mode == "memory",
+                    "orange", "gray",
+                ),
+                cursor="pointer",
+            ),
+            rx.button(
+                rx.icon("database", size=14),
+                rx.cond(AIState.ui_language == "de", "Datenbank", "Database"),
+                on_click=AIState.set_agent_editor_tab("database"),
+                size="2",
+                variant=rx.cond(
+                    AIState.agent_editor_mode == "database",
+                    "solid", "soft",
+                ),
+                color_scheme=rx.cond(
+                    AIState.agent_editor_mode == "database",
                     "orange", "gray",
                 ),
                 cursor="pointer",
@@ -771,6 +786,206 @@ def _memory_view() -> rx.Component:
 
 
 # ============================================================
+# DATABASE VIEW (ChromaDB Management — System Collections)
+# ============================================================
+
+def _database_view() -> rx.Component:
+    """Database tab: Research Cache + Documents with same browse/delete UI as Memory."""
+    return rx.vstack(
+        _editor_header(),
+
+        # Scrollable content
+        rx.box(
+            rx.vstack(
+                # Collection selector buttons + clear-all
+                rx.hstack(
+                    rx.button(
+                        rx.icon("search", size=14),
+                        " Research Cache",
+                        on_click=AIState.select_db_collection("research_cache"),
+                        size="2",
+                        variant=rx.cond(
+                            AIState.db_browser_collection == "research_cache",
+                            "solid", "soft",
+                        ),
+                        color_scheme="orange",
+                        cursor="pointer",
+                        flex_shrink="0",
+                    ),
+                    rx.button(
+                        rx.icon("file-text", size=14),
+                        " Documents",
+                        on_click=AIState.select_db_collection("aifred_documents"),
+                        size="2",
+                        variant=rx.cond(
+                            AIState.db_browser_collection == "aifred_documents",
+                            "solid", "soft",
+                        ),
+                        color_scheme="orange",
+                        cursor="pointer",
+                        flex_shrink="0",
+                    ),
+                    rx.spacer(),
+                    # Entry count badge
+                    rx.cond(
+                        AIState.db_browser_collection != "",
+                        rx.badge(
+                            AIState.db_browser_entries.length(),  # type: ignore[union-attr]
+                            variant="soft",
+                            color_scheme="orange",
+                        ),
+                    ),
+                    # Clear all button (with confirmation)
+                    rx.cond(
+                        AIState.db_browser_entries.length() > 0,  # type: ignore[union-attr]
+                        rx.cond(
+                            AIState.db_clear_confirm,
+                            # Confirmation: two buttons
+                            rx.hstack(
+                                rx.button(
+                                    rx.cond(AIState.ui_language == "de", "Wirklich loeschen?", "Really delete?"),
+                                    on_click=AIState.clear_db_collection,
+                                    size="1",
+                                    variant="solid",
+                                    color_scheme="red",
+                                    cursor="pointer",
+                                ),
+                                rx.button(
+                                    rx.cond(AIState.ui_language == "de", "Abbrechen", "Cancel"),
+                                    on_click=AIState.confirm_clear_db,
+                                    size="1",
+                                    variant="soft",
+                                    color_scheme="gray",
+                                    cursor="pointer",
+                                ),
+                                spacing="1",
+                            ),
+                            # Normal: eraser icon
+                            rx.tooltip(
+                                rx.icon_button(
+                                    rx.icon("eraser", size=16),
+                                    on_click=AIState.confirm_clear_db,
+                                    size="2",
+                                    variant="soft",
+                                    color_scheme="red",
+                                    cursor="pointer",
+                                ),
+                                content=rx.cond(
+                                    AIState.ui_language == "de",
+                                    "Alle Eintraege loeschen",
+                                    "Clear all entries",
+                                ),
+                            ),
+                        ),
+                    ),
+                    spacing="2",
+                    width="100%",
+                    align="center",
+                ),
+
+                # Entries list (reuses same card layout as memory browser)
+                rx.cond(
+                    AIState.db_browser_collection == "",
+                    rx.text(
+                        rx.cond(
+                            AIState.ui_language == "de",
+                            "Waehle eine Collection um deren Inhalt zu sehen.",
+                            "Select a collection to view its contents.",
+                        ),
+                        color="#888",
+                        font_size="13px",
+                        padding_top="20px",
+                        text_align="center",
+                    ),
+                    rx.cond(
+                        AIState.db_browser_entries.length() > 0,  # type: ignore[union-attr]
+                        rx.vstack(
+                            rx.foreach(
+                                AIState.db_browser_entries,
+                                _db_entry_row,
+                            ),
+                            spacing="2",
+                            width="100%",
+                        ),
+                        rx.text(
+                            rx.cond(
+                                AIState.ui_language == "de",
+                                "Keine Eintraege.",
+                                "No entries.",
+                            ),
+                            color="#888",
+                            font_size="13px",
+                        ),
+                    ),
+                ),
+
+                spacing="3",
+                width="100%",
+            ),
+            flex="1",
+            overflow_y="auto",
+            width="100%",
+        ),
+
+        spacing="3",
+        width="100%",
+        flex="1",
+        min_height="0",
+    )
+
+
+def _db_entry_row(entry: rx.Var) -> rx.Component:
+    """Render a single database entry — same style as memory entries."""
+    return rx.box(
+        rx.hstack(
+            rx.badge(
+                entry["type"],
+                variant="soft",
+                color_scheme=rx.cond(
+                    entry["type"] == "cache", "orange",
+                    rx.cond(entry["type"] == "document", "blue", "gray"),
+                ),
+                font_size="10px",
+            ),
+            rx.text(entry["date"], font_size="11px", color="#888"),
+            rx.spacer(),
+            rx.icon_button(
+                rx.icon("trash-2", size=12),
+                on_click=AIState.delete_db_entry(entry["id"]),
+                size="1",
+                variant="ghost",
+                color_scheme="red",
+                cursor="pointer",
+            ),
+            width="100%",
+            align="center",
+        ),
+        rx.text(
+            entry["summary"],
+            font_size="15px",
+            color="#ddd",
+            font_weight="500",
+            padding_top="4px",
+        ),
+        rx.cond(
+            entry["content"] != entry["summary"],
+            rx.text(
+                entry["content"],
+                font_size="14px",
+                color="#aaa",
+                padding_top="4px",
+                style={"white_space": "pre-wrap", "max_height": "150px", "overflow_y": "auto"},
+            ),
+        ),
+        padding="10px 12px",
+        background="rgba(255,255,255,0.03)",
+        border_radius="6px",
+        border="1px solid #333",
+        width="100%",
+    )
+
+
+# ============================================================
 # MAIN MODAL
 # ============================================================
 
@@ -789,12 +1004,16 @@ def agent_editor_modal() -> rx.Component:
                 background_color="rgba(0, 0, 0, 0.85)",
                 on_click=AIState.close_agent_editor,
             ),
-            # Modal content — switches between config and memory
+            # Modal content — switches between config, memory and database
             rx.box(
                 rx.cond(
-                    AIState.agent_editor_mode == "memory",
-                    _memory_view(),
-                    _config_view(),
+                    AIState.agent_editor_mode == "database",
+                    _database_view(),
+                    rx.cond(
+                        AIState.agent_editor_mode == "memory",
+                        _memory_view(),
+                        _config_view(),
+                    ),
                 ),
                 padding="25px",
                 background_color="#1a1a1a",

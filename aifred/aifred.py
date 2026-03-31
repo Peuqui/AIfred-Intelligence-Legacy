@@ -755,10 +755,10 @@ console.log('✂️ Crop handler loaded');
                 rx.cond(
                     AIState.logged_in_user != "",
                     rx.hstack(
-                        # Agent Editor button
+                        # Settings menu button (Agent Editor + Memory + Database)
                         rx.tooltip(
                             rx.icon(
-                                "users",
+                                "menu",
                                 size=18,
                                 color="#d98030",
                                 cursor="pointer",
@@ -768,7 +768,7 @@ console.log('✂️ Crop handler loaded');
                                     "&:hover": {"color": "#FFD700"},
                                 },
                             ),
-                            content=t("agent_editor_title"),
+                            content=t("settings_menu_title"),
                         ),
                         rx.text(
                             AIState.logged_in_user,

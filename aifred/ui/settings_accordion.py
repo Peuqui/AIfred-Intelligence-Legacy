@@ -1337,29 +1337,7 @@ def settings_accordion() -> rx.Component:
                         spacing="3",
                         width="100%",
                     ),
-                    # Row 2: Vector DB clear button (full width, same style as chat clear)
-                    rx.button(
-                        "\U0001f5d1\ufe0f Web-Cache leeren",
-                        on_click=AIState.clear_vector_cache,
-                        size="2",
-                        variant="outline",
-                        color_scheme="orange",
-                        disabled=AIState.backend_switching,
-                        width="100%",
-                        style={
-                            "background": "rgba(100, 10, 0, 0.4)",  # Same as chat clear button
-                            "&:hover:not([disabled])": {
-                                "background": "rgba(150, 15, 0, 0.6) !important",
-                                "border_color": "#ff6600 !important",
-                                "transform": "scale(1.02)",
-                            },
-                            "&:active:not([disabled])": {
-                                "background": "rgba(80, 5, 0, 0.7) !important",
-                                "transform": "scale(0.98)",
-                            },
-                        },
-                    ),
-                    # Row 3: Load Default Settings button
+                    # Row 2: Load Default Settings button
                     rx.button(
                         "\U0001f4be Grundeinstellungen laden",
                         on_click=AIState.load_default_settings,

@@ -349,8 +349,12 @@ class TranslationManager:
             # Login/Logout
             "logout": "Abmelden",
             "logged_in_as": "Angemeldet als",
-            # Agent Editor
-            "agent_editor_title": "Agenten-Verwaltung",
+            # Agent Editor / Settings Menu
+            "settings_menu_title": "Einstellungen",
+            "agent_editor_title": "Einstellungen",
+            "tab_agents": "Agenten",
+            "tab_memory": "Memory",
+            "tab_database": "Datenbank",
             "agent_editor_new": "Neuer Agent",
             "agent_editor_edit": "Bearbeiten",
             "agent_editor_delete": "Loeschen",
@@ -712,8 +716,12 @@ class TranslationManager:
             # Login/Logout
             "logout": "Logout",
             "logged_in_as": "Logged in as",
-            # Agent Editor
-            "agent_editor_title": "Agent Management",
+            # Agent Editor / Settings Menu
+            "settings_menu_title": "Settings",
+            "agent_editor_title": "Settings",
+            "tab_agents": "Agents",
+            "tab_memory": "Memory",
+            "tab_database": "Database",
             "agent_editor_new": "New Agent",
             "agent_editor_edit": "Edit",
             "agent_editor_delete": "Delete",
