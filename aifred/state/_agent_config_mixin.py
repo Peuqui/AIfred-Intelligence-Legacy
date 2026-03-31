@@ -1046,6 +1046,8 @@ class AgentConfigMixin(rx.State, mixin=True):
         self.agent_editor_open = True
         self.editor_delete_confirm = ""
         self.editor_emoji_picker_open = False
+        self.editor_dirty = False
+        self.editor_dirty_confirm = False
 
         # Load first agent's data into state
         from ..lib.agent_config import load_agents_raw
@@ -1060,16 +1062,72 @@ class AgentConfigMixin(rx.State, mixin=True):
         # Now populate DOM fields (modal exists now)
         yield self._push_editor_dom()
 
+    # Dirty flag — set on any keystroke in editor fields
+    editor_dirty: bool = False
+    editor_dirty_confirm: bool = False  # Show unsaved-changes dialog
+    _pending_agent_label: str = ""
+    _pending_close: bool = False
+
+    def mark_editor_dirty(self) -> None:
+        """Mark editor as having unsaved changes (called on any keystroke)."""
+        self.editor_dirty = True
+
     def close_agent_editor(self) -> None:
-        """Close the agent editor modal."""
+        """Close the agent editor modal (no dirty check)."""
         self.agent_editor_open = False
         self.editor_agent_id = ""
         self.editor_delete_confirm = ""
+        self.editor_dirty_confirm = False
+        self.editor_dirty = False
 
-    def set_agent_editor_tab(self, tab: str) -> None:
+    def close_editor_with_dirty_check(self) -> None:
+        """Close editor — warn if unsaved changes."""
+        if not self.editor_dirty or self.agent_editor_mode != "config":
+            self.close_agent_editor()
+            return
+        self._pending_close = True
+        self._pending_agent_label = ""
+        self.editor_dirty_confirm = True
+
+    def select_editor_agent_with_dirty_check(self, label: str):
+        """Switch agent — warn if unsaved changes."""
+        if not self.editor_dirty:
+            return self.select_editor_agent(label)
+        self._pending_agent_label = label
+        self._pending_close = False
+        self.editor_dirty_confirm = True
+
+    def confirm_discard_changes(self):
+        """User confirmed discarding unsaved changes — reload current agent, stay open."""
+        self.editor_dirty_confirm = False
+        self.editor_dirty = False
+        if self._pending_close:
+            self._pending_close = False
+            # Don't close — just reload the current agent to discard changes
+            if self.editor_agent_id:
+                self._load_agent_into_state(self.editor_agent_id)
+                return self._push_editor_dom()
+            return
+        if self._pending_agent_label:
+            label = self._pending_agent_label
+            self._pending_agent_label = ""
+            self.select_editor_agent(label)
+            return self._push_editor_dom()
+
+    def cancel_discard_changes(self) -> None:
+        """User cancelled — stay on current agent."""
+        self.editor_dirty_confirm = False
+        self._pending_agent_label = ""
+        self._pending_close = False
+
+    def set_agent_editor_tab(self, tab: str):
         """Switch between config, memory and database tabs."""
         self.agent_editor_mode = tab
-        if tab == "memory":
+        if tab == "config":
+            # Re-push DOM fields when switching back to config tab
+            yield
+            yield self._push_editor_dom()
+        elif tab == "memory":
             self.open_memory_browser()
         elif tab == "database":
             self.db_clear_confirm = False
@@ -1100,15 +1158,16 @@ class AgentConfigMixin(rx.State, mixin=True):
         self.editor_prompt_keys = list(config.prompts.keys())
         self.editor_delete_confirm = ""
         self.editor_emoji_picker_open = False
+        self.editor_dirty = False
 
-        # Load TTS settings for this agent + current editor engine
-        self.editor_tts_engine = self.tts_engine  # type: ignore[attr-defined]
+        # Load TTS settings for this agent — always start with XTTS
+        self.editor_tts_engine = "xtts"  # type: ignore[attr-defined]
         self._load_editor_tts_settings()  # type: ignore[attr-defined]
 
         self._load_editor_prompt("identity")
 
     def _push_editor_dom(self):
-        """Push current editor state values into DOM fields via JS."""
+        """Push current editor state values into DOM fields via JS and store initial state."""
         import json as _json
         name_js = _json.dumps(self.editor_display_name)
         desc_js = _json.dumps(self._editor_description)
@@ -1200,6 +1259,8 @@ class AgentConfigMixin(rx.State, mixin=True):
         from ..lib.agent_config import update_agent, create_agent
         from ..lib.prompt_loader import register_agent_toggles
 
+        self.editor_dirty = False
+
         try:
             vals = json.loads(dom_values)
         except (json.JSONDecodeError, TypeError):
@@ -1252,9 +1313,10 @@ class AgentConfigMixin(rx.State, mixin=True):
             self._load_agent_into_state(agent_id)
             return self._push_editor_dom()
 
-        # Existing agent saved — refresh dropdown, close modal
+        # Existing agent saved — refresh dropdown, show toast, stay open
         self._refresh_agent_dropdown()
-        self.agent_editor_open = False
+        self.editor_dirty_confirm = False
+        return rx.toast.success(f"{self.editor_display_name} gespeichert", duration=2000)
 
     def delete_agent_editor(self, agent_id: str) -> None:
         """Delete an agent (with confirmation)."""
@@ -1365,9 +1427,9 @@ class AgentConfigMixin(rx.State, mixin=True):
 
     def select_memory_agent(self, label: str) -> None:
         """Select an agent in the memory browser dropdown."""
-        # Find agent_id from display label
+        # Find agent_id from display label (label may include count suffix)
         for col in self.memory_browser_collections:
-            if col["display_name"] == label:
+            if col["display_name"] == label or label.startswith(col["display_name"]):
                 self.browse_memory_agent(col["agent_id"])
                 return
 
@@ -1382,8 +1444,11 @@ class AgentConfigMixin(rx.State, mixin=True):
 
     @rx.var(deps=["memory_browser_collections"], auto_deps=False)
     def memory_agent_dropdown_options(self) -> List[str]:
-        """Agent dropdown labels for memory browser."""
-        return [col["display_name"] for col in self.memory_browser_collections]
+        """Agent dropdown labels with memory count."""
+        return [
+            f"{col['display_name']} ({col['count']})"
+            for col in self.memory_browser_collections
+        ]
 
     @rx.var(deps=["memory_browser_entries", "memory_browser_filter"], auto_deps=False)
     def filtered_memory_entries(self) -> List[Dict[str, str]]:

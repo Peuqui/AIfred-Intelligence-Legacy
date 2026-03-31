@@ -49,7 +49,7 @@ def _editor_header() -> rx.Component:
             rx.spacer(),
             rx.button(
                 rx.icon("x", size=16),
-                on_click=AIState.close_agent_editor,
+                on_click=AIState.close_editor_with_dirty_check,
                 size="1",
                 variant="ghost",
                 color_scheme="gray",
@@ -153,6 +153,7 @@ _READ_DOM_JS = (
 )
 
 
+
 # ============================================================
 # CONFIG TAB — Dropdown + Metadata + TTS + Prompts
 # ============================================================
@@ -178,20 +179,28 @@ def _config_view() -> rx.Component:
                     # Agent dropdown
                     rx.cond(
                         ~is_new,
-                        rx.select(
-                            AIState.agent_dropdown_options,
-                            value=AIState.editor_agent_dropdown_value,
-                            on_change=AIState.select_editor_agent,
-                            size="2",
-                            width="100%",
+                        rx.box(
+                            rx.select(
+                                AIState.agent_dropdown_options,
+                                value=AIState.editor_agent_dropdown_value,
+                                on_change=AIState.select_editor_agent_with_dirty_check,
+                                size="2",
+                                width="100%",
+                            ),
+                            flex="1",
+                            min_width="0",
                         ),
                         # New agent mode — show ID input instead
-                        rx.el.input(
-                            id="editor-agent-id",
-                            placeholder=t("agent_editor_agent_id_placeholder"),
-                            auto_complete="off",
-                            spell_check=False,
-                            **_INPUT_STYLE,
+                        rx.box(
+                            rx.el.input(
+                                id="editor-agent-id",
+                                placeholder=t("agent_editor_agent_id_placeholder"),
+                                auto_complete="off",
+                                spell_check=False,
+                                **_INPUT_STYLE,
+                            ),
+                            flex="1",
+                            min_width="0",
                         ),
                     ),
                     # New Agent button
@@ -264,6 +273,7 @@ def _config_view() -> rx.Component:
                             id="editor-name",
                             auto_complete="off",
                             spell_check=False,
+                            on_key_down=lambda _: AIState.mark_editor_dirty(),
                             **_INPUT_STYLE,
                         ),
                         spacing="1",
@@ -357,6 +367,7 @@ def _config_view() -> rx.Component:
                             id="editor-description",
                             auto_complete="off",
                             spell_check=False,
+                            on_key_down=lambda _: AIState.mark_editor_dirty(),
                             **_INPUT_STYLE,
                         ),
                         spacing="1",
@@ -515,10 +526,46 @@ def _config_view() -> rx.Component:
                             border_radius="6px",
                             auto_complete="off",
                             spell_check=False,
+                            on_key_down=lambda _: AIState.mark_editor_dirty(),
                             style={"resize": "vertical"},
                         ),
                         spacing="2",
                         width="100%",
+                    ),
+                ),
+
+                # ── Unsaved Changes Warning ─────────────────────
+                rx.cond(
+                    AIState.editor_dirty_confirm,
+                    rx.vstack(
+                        rx.hstack(
+                            rx.icon("alert-triangle", size=16, color="#ff6600"),
+                            rx.text(
+                                t("agent_editor_unsaved_warning"),
+                                font_size="13px",
+                                color="#ff6600",
+                            ),
+                            spacing="2",
+                            align="center",
+                            justify="center",
+                            width="100%",
+                        ),
+                        rx.button(
+                            t("agent_editor_discard"),
+                            on_click=AIState.confirm_discard_changes,
+                            size="2",
+                            variant="solid",
+                            color_scheme="red",
+                            cursor="pointer",
+                            width="auto",
+                        ),
+                        spacing="2",
+                        align="center",
+                        width="100%",
+                        padding="10px 12px",
+                        background="rgba(255, 100, 0, 0.1)",
+                        border="1px solid #ff6600",
+                        border_radius="6px",
                     ),
                 ),
 
@@ -962,7 +1009,7 @@ def agent_editor_modal() -> rx.Component:
                 width="100%",
                 height="100%",
                 background_color="rgba(0, 0, 0, 0.85)",
-                on_click=AIState.close_agent_editor,
+                on_click=AIState.close_editor_with_dirty_check,
             ),
             # Modal content — switches between config, memory and database
             rx.box(

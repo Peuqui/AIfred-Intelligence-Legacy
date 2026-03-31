@@ -110,7 +110,7 @@ class TTSConfigMixin(rx.State, mixin=True):
     # The editor lets you configure voices per backend per agent.
     # editor_tts_engine selects which backend you're configuring.
     # _editor_tts_settings holds the loaded settings for that agent+engine.
-    editor_tts_engine: str = "xtts"
+    editor_tts_engine: str = "xtts"  # Default, overridden by active engine on agent load
     _editor_tts_settings: Dict[str, Any] = {}  # {"voice": ..., "speed": ..., "pitch": ..., "enabled": ...}
 
     @rx.var(deps=["ui_language", "editor_tts_engine"], auto_deps=False)
@@ -120,28 +120,57 @@ class TTSConfigMixin(rx.State, mixin=True):
         lang = self.ui_language if self.ui_language != "auto" else "de"  # type: ignore[attr-defined]
         return tts_key_to_label(self.editor_tts_engine, lang=lang)
 
-    @rx.var(deps=["editor_tts_engine", "xtts_voices_cache"], auto_deps=False)
+    @rx.var(deps=["editor_tts_engine", "xtts_voices_cache", "_editor_tts_settings"], auto_deps=False)
     def editor_tts_available_voices(self) -> List[str]:
-        """Available voices for the editor's selected TTS engine."""
-        from ..lib.config import EDGE_TTS_VOICES, ESPEAK_VOICES, PIPER_VOICES
+        """Available voices for the editor's selected TTS engine.
+
+        Base: saved voices from settings.json (always shown).
+        If engine is running: merge live voices for more options.
+        Selected voice always comes from settings, never from live query.
+        """
+        from ..lib.settings import load_settings
+
         engine = self.editor_tts_engine
+
+        # 1. Base: saved voices from settings.json
+        saved_voices: set[str] = set()
+        settings = load_settings() or {}
+        per_engine = settings.get("tts_agent_voices_per_engine", {}).get(engine, {})
+        for cfg in per_engine.values():
+            v = cfg.get("voice", "")
+            if v:
+                saved_voices.add(v)
+
+        # Also include the currently loaded voice
+        current_voice = self._editor_tts_settings.get("voice", "")
+        if current_voice:
+            saved_voices.add(current_voice)
+
+        # 2. If engine is running, merge live voices for more selection
+        live_voices: set[str] = set()
         if engine == "xtts":
             if self.xtts_voices_cache:
-                return self.xtts_voices_cache
-            from ..lib.config import XTTS_VOICES_FALLBACK, sort_voices_custom_first
-            return sort_voices_custom_first(list(XTTS_VOICES_FALLBACK.keys()))
+                live_voices = set(self.xtts_voices_cache)
         elif engine == "moss":
-            from ..lib.config import get_moss_voices, MOSS_TTS_VOICES_FALLBACK
-            voices = get_moss_voices()
-            return sorted(list((voices or MOSS_TTS_VOICES_FALLBACK).keys()))
+            from ..lib.config import get_moss_voices
+            voices = get_moss_voices()  # Returns None if not running
+            if voices:
+                live_voices = set(voices.keys())
         elif engine == "dashscope":
-            from ..lib.config import DASHSCOPE_VOICES, sort_voices_custom_first
-            return sort_voices_custom_first(list(DASHSCOPE_VOICES.keys()))
+            from ..lib.config import DASHSCOPE_VOICES
+            live_voices = set(DASHSCOPE_VOICES.keys())
         elif engine == "piper":
-            return sorted(list(PIPER_VOICES.keys()))
+            from ..lib.config import PIPER_VOICES
+            live_voices = set(PIPER_VOICES.keys())
         elif engine == "espeak":
-            return sorted(list(ESPEAK_VOICES.keys()))
-        return sorted(list(EDGE_TTS_VOICES.keys()))
+            from ..lib.config import ESPEAK_VOICES
+            live_voices = set(ESPEAK_VOICES.keys())
+        else:
+            from ..lib.config import EDGE_TTS_VOICES
+            live_voices = set(EDGE_TTS_VOICES.keys())
+
+        # 3. Merge: saved (always) + live (if available)
+        return sorted(saved_voices | live_voices)
 
     @rx.var(deps=["_editor_tts_settings"], auto_deps=False)
     def editor_agent_tts_voice(self) -> str:
@@ -515,8 +544,10 @@ class TTSConfigMixin(rx.State, mixin=True):
 
         # If editor engine matches the active engine, update live state
         if engine == self.tts_engine:
-            if agent_id in self.tts_agent_voices:
-                self.tts_agent_voices[agent_id].update(self._editor_tts_settings)
+            # Re-assign the entire dict so Reflex detects the state change
+            updated = dict(self.tts_agent_voices)
+            updated[agent_id] = dict(self._editor_tts_settings)
+            self.tts_agent_voices = updated
             self._save_settings()  # type: ignore[attr-defined]
             return
 
