@@ -773,7 +773,7 @@ def _database_view() -> rx.Component:
                 rx.hstack(
                     rx.button(
                         rx.icon("search", size=14),
-                        " Research Cache",
+                        " ", t("db_research_cache"),
                         on_click=AIState.select_db_collection("research_cache"),
                         size="2",
                         variant=rx.cond(
@@ -786,7 +786,7 @@ def _database_view() -> rx.Component:
                     ),
                     rx.button(
                         rx.icon("file-text", size=14),
-                        " Documents",
+                        " ", t("db_documents"),
                         on_click=AIState.select_db_collection("aifred_documents"),
                         size="2",
                         variant=rx.cond(
