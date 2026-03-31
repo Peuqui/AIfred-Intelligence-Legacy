@@ -1608,13 +1608,19 @@ class AgentConfigMixin(rx.State, mixin=True):
             return
 
         self.memory_browser_agent = agent_id
-        # Resolve display name
+        # Resolve display name — must match dropdown format (with count)
+        count = "0"
+        for col_info in self.memory_browser_collections:
+            if col_info["agent_id"] == agent_id:
+                count = col_info["count"]
+                break
         if agent_id == "research_cache":
-            self.memory_browser_agent_display = "🔍 Research Cache"
+            self.memory_browser_agent_display = f"🔍 Research Cache ({count})"
         else:
             from ..lib.agent_config import get_agent_config
             cfg = get_agent_config(agent_id)
-            self.memory_browser_agent_display = f"{cfg.emoji} {cfg.display_name}" if cfg else agent_id.capitalize()
+            name = f"{cfg.emoji} {cfg.display_name}" if cfg else agent_id.capitalize()
+            self.memory_browser_agent_display = f"{name} ({count})"
         entries: list[dict] = []
 
         try:
