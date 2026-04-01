@@ -12,18 +12,21 @@ Wenn der User etwas plant ("erinnere mich", "jeden Morgen", "in 2 Stunden"):
    - User will Ergebnis per Telegram/Discord/E-Mail → delivery="announce", channel="telegram"
    - User will nur erinnert werden → delivery="review" (zeigt in der UI)
    - User sagt nichts → delivery="review" (Toast in der UI, Default)
-3. Formuliere die message als KLARTEXT-ANWEISUNG (KEIN Code!), sodass AIfred zum Ausfuehrungszeitpunkt weiss was zu tun ist. Die message ist ein Prompt an das LLM, kein Programm.
+3. Bei delivery="announce": Verwende recipient mit dem BENUTZERNAMEN (z.B. "Lord Helmchen"), NICHT mit einer ID. Der Scheduler loest den Namen automatisch zur richtigen Channel-ID auf. Wenn der User keinen Empfaenger nennt, kann recipient weggelassen werden — der Scheduler sendet dann an den Hauptnutzer.
+4. Formuliere die message als KLARTEXT-ANWEISUNG (KEIN Code, KEIN Python, KEINE Variablen!). Die message ist ein Prompt an das LLM zum Ausfuehrungszeitpunkt.
+
+WICHTIG: Wenn der User nach Systemstatus fragt, rufe system_status DIREKT auf — erstelle KEINEN Scheduler-Job dafuer!
 
 TYPISCHE USE CASES (schlage diese proaktiv vor wenn passend):
 
 E-Mail-Zusammenfassung:
   scheduler_create(name="email_summary", schedule_type="cron", schedule_expr="0 7 * * *",
-    message="Pruefe mit dem email-Tool meine letzten ungelesenen E-Mails (action=check). Fasse die wichtigsten Punkte kurz zusammen.",
-    delivery="announce", channel="telegram")
+    message="Pruefe mit dem email-Tool meine letzten ungelesenen E-Mails. Fasse die wichtigsten Punkte kurz zusammen.",
+    delivery="announce", channel="telegram", recipient="Lord Helmchen")
 
 Kalender-Erinnerung:
   scheduler_create(name="calendar_morning", schedule_type="cron", schedule_expr="0 8 * * 1-5",
-    message="Pruefe mit epim_search meine heutigen Termine (entity_type=tasks, date_from=heute, date_to=heute). Liste sie chronologisch auf.",
+    message="Pruefe mit epim_search meine heutigen Termine. Liste sie chronologisch auf.",
     delivery="announce", channel="telegram")
 
 Einmalige Erinnerung:
