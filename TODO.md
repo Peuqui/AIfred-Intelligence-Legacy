@@ -9,47 +9,7 @@ Pipeline: Inbound Sanitization → Tier-Check → Tool-Aufruf → Output-Sanitiz
 
 ---
 
-## Uebergabe / Aktueller Stand (2026-03-29)
-
-### Was heute gebaut und getestet wurde:
-- Security Layer komplett (S1-S7, S9): Tier-System, Audit-Log, Sanitization,
-  Credential Broker, Rate Limiting, Circuit Breaker, Action Confirmation
-- Scheduler (P1-P5): Job Store, isolierte Sessions, Delivery Modes, Webhook-API, Auto-Restart
-- Telegram Bot Plugin: Channel + Tools + Whitelist + Tests
-- Scheduler Tool Plugin: create/list/delete via Chat
-- Audit-Log UI + Allowlist UI
-- Proaktiver Assistent: Prompt-Vorlagen fuer E-Mail-Summary, Kalender etc.
-- Audio Manager + Audio Player Plugin (lib/audio_manager.py + plugins/tools/audio_player.py)
-  - Haendisch getestet mit echtem WAV, funktioniert
-  - Noch nicht im Browser live getestet (kein Lautsprecher am Mini)
-- Email Plugin komplett: move, list_folders, create_folder, mark (read/unread/flagged)
-- EPIM Fixes: Field-Mapping, ID-Strings, Encoding-Bug (Byte vs. Char-Laenge), Kontakt-Fields
-- Scroll-Fixes: Reconnect, Page-Load, Streaming-Absatzabstand
-- 110+ Unit Tests, umfangreiche Live-Tests via Chrome DevTools
-- Docs: Security-Architektur (DE/EN), Scheduler (DE/EN), Telegram Setup, Plugin Guide
-- Repo: Neues privates Repo, Legacy-Repo umbenannt, TODO.md aus History entfernt
-
-### TTS pro Agent (implementiert 2026-03-30)
-
-- [x] `tts_agent_voices` dynamisch fuer ALLE registrierten Agenten
-- [x] Neuer Agent → automatisch Default-Voice-Eintrag
-- [x] Agent loeschen → TTS-Eintrag entfernen
-- [x] TTS-Config (Voice/Speed/Pitch/Enabled) im Agent-Editor Modal fuer alle Agenten
-- [x] Settings vereinfacht: nur Engine-Dropdown + Autoplay + Streaming
-- [x] Persistenz pro Engine in settings.json (tts_agent_voices_per_engine)
-- [ ] Live-Test im Browser
-
-### ECC-RAM deaktiviert (2026-03-29)
-Alle 4 GPUs: ECC off → 120 GB VRAM (vorher 112.5 GB). ~8.5% schneller.
-Befehl war: `sudo nvidia-smi -i 0,1,2,3 --ecc-config=0` + Reboot.
-
----
-
 ## Audio-Player Plugin
-
-Code existiert bereits (lib/audio_manager.py + plugins/tools/audio_player.py).
-Haendisch getestet, funktioniert mit aplay/ffplay.
-Warten auf Pucks / Lautsprecher-Setup fuer Live-Test.
 
 - [ ] Live-Test im Browser (AIfred soll WAV abspielen)
 - [ ] Integration mit Scheduler: Weckerton zu bestimmter Uhrzeit
