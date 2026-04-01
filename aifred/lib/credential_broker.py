@@ -89,6 +89,8 @@ _CREDENTIAL_MAP: dict[tuple[str, str], str] = {
     ("telegram", "enabled"): "TELEGRAM_ENABLED",
     # Webhook API
     ("webhook", "api_token"): "WEBHOOK_API_TOKEN",
+    # DeepL Translation
+    ("deepl", "api_key"): "DEEPL_API_KEY",
 }
 
 

@@ -85,7 +85,7 @@
     "pater": {
       "display_name": "Pater Tuck",
       "emoji": "🔥",
-      "description": "",
+      "description": "Evangelischer Pastor und Seelsorger",
       "role": "custom",
       "prompts": {
         "identity": "pater/identity.txt",
@@ -103,7 +103,7 @@
     "codi": {
       "display_name": "Codi",
       "emoji": "🤖",
-      "description": "",
+      "description": "Mathematiker und Programmierer",
       "role": "custom",
       "prompts": {
         "identity": "codi/identity.txt",

@@ -157,6 +157,34 @@ Geplante Aufgaben (Cron-Jobs) für AIfred.
 
 ---
 
+### System Monitor
+
+**Datei:** `plugins/tools/system_monitor.py`
+
+Hardware-Status: CPU, RAM, GPU, Festplatte, Temperatur.
+
+| Tool | Beschreibung | Tier |
+|------|-------------|------|
+| `system_status` | Hardware-Status abfragen (CPU, RAM, GPU, Disk, Temperatur) | READONLY |
+
+> **Details:** [System Monitor Plugin](plugins/system-monitor.md)
+
+---
+
+### Translator (DeepL)
+
+**Datei:** `plugins/tools/translator.py`
+
+Textuebersetzung via DeepL API mit automatischer Quellsprach-Erkennung. 30+ Sprachen, 500.000 Zeichen/Monat kostenlos.
+
+| Tool | Beschreibung | Tier |
+|------|-------------|------|
+| `translate` | Text in eine Zielsprache uebersetzen | READONLY |
+
+> **Details:** [Translator Plugin](plugins/translator.md)
+
+---
+
 ## Channel Plugins
 
 Channel Plugins verbinden AIfred mit externen Kommunikationskanälen. Eingehende Nachrichten werden automatisch verarbeitet und optional beantwortet.
@@ -218,6 +246,7 @@ aifred/plugins/
 │   ├── calculator.py       # Mathematik
 │   ├── audio_player.py     # Audio-Wiedergabe
 │   ├── scheduler_tool.py   # Geplante Aufgaben
+│   ├── translator.py       # DeepL-Uebersetzung
 │   └── epim/               # EPIM-Datenbank
 │       ├── tools.py
 │       └── db.py
