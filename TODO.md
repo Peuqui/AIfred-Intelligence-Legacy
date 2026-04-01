@@ -144,8 +144,6 @@ Eigene Python-App auf Termux als Puck-Client.
 - [ ] Signal Plugin (signal-cli-rest-api Docker)
 
 ### Neue Tool Plugins
-- [ ] System Monitor Plugin: CPU, RAM, GPU (nvidia-smi), Disk, Uptime, Temperatur
-- [ ] Uebersetzer Plugin: DeepL oder Google Translate API
 - [ ] RSS/News Feed Plugin: Nachrichten-Quellen ueberwachen und zusammenfassen
 - [ ] Home Assistant Plugin: Smart Home Geraete steuern (REST API)
 - [ ] Kalender-Sync Plugin: Google Calendar / CalDAV (unabhaengig von EPIM)
@@ -157,11 +155,14 @@ Eigene Python-App auf Termux als Puck-Client.
 
 ---
 
+### UI Verbesserungen
+- [ ] Tages-Separatoren bei Datumswechsel in Chat (Messenger-Stil)
+- [ ] Clickable Tooltips: Hilfe-Modale fuer alle UI-Bereiche (Agenten-Editor, etc.)
+
 ## Offene Verbesserungen
 
 - [ ] Multi-Email-Konto Support (mehrere IMAP/SMTP Accounts, Rechte pro Konto)
 - [ ] Kanaluebergreifendes Routing (eine Session ueber mehrere Kanaele — Telegram/Discord/Email/Browser)
-- [ ] Tool-Angebot nach Tier filtern BEVOR es ans LLM geht (spart Tokens)
 - [ ] Research-Pipeline State-Abhaengigkeit weiter reduzieren
 - [ ] Inbound-Sanitization Strictness pro Channel konfigurierbar
 - [ ] Session Memory Sanitization nach Job-Ende
