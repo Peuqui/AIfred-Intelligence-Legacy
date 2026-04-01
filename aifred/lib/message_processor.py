@@ -248,7 +248,7 @@ async def process_inbound(message: InboundMessage) -> Optional[OutboundMessage]:
 
         # Prefix with agent name if not AIfred (so user knows who answered)
         if message.target_agent != "aifred":
-            outbound_text = f"[{agent_display_name}]\n\n{outbound_text}"
+            outbound_text = f"— {agent_display_name} —\n\n{outbound_text}"
 
         # ── Phase 4: Auto-reply if enabled ────────────────────
         reply_metadata = plugin.build_reply_metadata(message) if plugin else {}
