@@ -252,17 +252,23 @@ def image_upload_section() -> rx.Component:
             ),
 
             # Help button (lightbulb) — explains all input buttons
-            clickable_tip(
-                rx.icon("lightbulb", size=16, color="#d98030", cursor="pointer"),
-                rx.vstack(
-                    rx.text("Eingabe-Optionen", font_size="13px", font_weight="bold", color="#d98030"),
-                    rx.text("Aufnahme — Spracheingabe per Mikrofon", font_size="11px", color="#ccc"),
-                    rx.text("Kamera — Foto aufnehmen (Handy/Webcam)", font_size="11px", color="#ccc"),
-                    rx.text("Bild hochladen — Bilder per Drag & Drop", font_size="11px", color="#ccc"),
-                    rx.text("Dokument — Dateien verwalten, hochladen, indexieren", font_size="11px", color="#ccc"),
-                    rx.text("Audio — Audiodatei hochladen (WAV, MP3)", font_size="11px", color="#ccc"),
-                    spacing="1",
+            rx.box(
+                clickable_tip(
+                    rx.icon("lightbulb", size=16, color="#FFD700", cursor="pointer",
+                            style={"transition": "transform 0.2s ease", "&:hover": {"transform": "scale(1.15)"}}),
+                    rx.vstack(
+                        rx.text("Eingabe-Optionen", font_size="13px", font_weight="bold", color="#FFD700"),
+                        rx.text("Aufnahme — Spracheingabe per Mikrofon", font_size="11px", color="#ccc"),
+                        rx.text("Kamera — Foto aufnehmen (Handy/Webcam)", font_size="11px", color="#ccc"),
+                        rx.text("Bild hochladen — Bilder per Drag & Drop", font_size="11px", color="#ccc"),
+                        rx.text("Dokument — Dateien verwalten, hochladen, indexieren", font_size="11px", color="#ccc"),
+                        rx.text("Audio — Audiodatei hochladen (WAV, MP3)", font_size="11px", color="#ccc"),
+                        spacing="1",
+                    ),
                 ),
+                display="flex",
+                align_items="center",
+                height="100%",
             ),
 
             # Hidden upload for MediaRecorder (JavaScript will populate this)

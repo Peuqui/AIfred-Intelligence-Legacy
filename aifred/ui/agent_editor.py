@@ -1490,7 +1490,7 @@ def _scheduler_edit_form() -> rx.Component:
             ),
             rx.vstack(
                 clickable_tip(
-                    rx.hstack(rx.text("Type", font_size="11px", color="#888"), rx.icon("lightbulb", size=12, color="#d98030"), spacing="1", align="center", cursor="pointer"),
+                    rx.hstack(rx.text("Type", font_size="11px", color="#888"), rx.icon("lightbulb", size=12, color="#FFD700"), spacing="1", align="center", cursor="pointer"),
                     rx.vstack(
                         rx.text("cron = Zeitplan", font_size="12px", color="#ddd"),
                         rx.text("  z.B. '0 8 * * *' = täglich 8 Uhr", font_size="11px", color="#aaa"),
@@ -1511,7 +1511,7 @@ def _scheduler_edit_form() -> rx.Component:
         ),
         rx.vstack(
             clickable_tip(
-                rx.hstack(rx.text("Schedule", font_size="11px", color="#888"), rx.icon("lightbulb", size=12, color="#d98030"), spacing="1", align="center", cursor="pointer"),
+                rx.hstack(rx.text("Schedule", font_size="11px", color="#888"), rx.icon("lightbulb", size=12, color="#FFD700"), spacing="1", align="center", cursor="pointer"),
                 rx.vstack(
                     rx.text("Cron: MIN STD TAG MON WTAG", font_size="12px", color="#ddd"),
                     rx.text("  '0 8 * * *' = täglich 8 Uhr", font_size="11px", color="#aaa"),
@@ -1544,7 +1544,7 @@ def _scheduler_edit_form() -> rx.Component:
             ),
             rx.vstack(
                 clickable_tip(
-                    rx.hstack(rx.text("Delivery", font_size="11px", color="#888"), rx.icon("lightbulb", size=12, color="#d98030"), spacing="1", align="center", cursor="pointer"),
+                    rx.hstack(rx.text("Delivery", font_size="11px", color="#888"), rx.icon("lightbulb", size=12, color="#FFD700"), spacing="1", align="center", cursor="pointer"),
                     rx.vstack(
                         rx.text("review = Toast in der UI", font_size="12px", color="#ddd"),
                         rx.text("announce = an Channel senden", font_size="12px", color="#ddd"),
@@ -1575,7 +1575,7 @@ def _scheduler_edit_form() -> rx.Component:
             ),
             rx.vstack(
                 clickable_tip(
-                    rx.hstack(rx.text("Tier", font_size="11px", color="#888"), rx.icon("lightbulb", size=12, color="#d98030"), spacing="1", align="center", cursor="pointer"),
+                    rx.hstack(rx.text("Tier", font_size="11px", color="#888"), rx.icon("lightbulb", size=12, color="#FFD700"), spacing="1", align="center", cursor="pointer"),
                     rx.vstack(
                         rx.text("0 = nur Lesen", font_size="12px", color="#ddd"),
                         rx.text("1 = Kommunikation", font_size="12px", color="#ddd"),
@@ -1599,7 +1599,7 @@ def _scheduler_edit_form() -> rx.Component:
             AIState.scheduler_edit_delivery == "announce",
             rx.vstack(
                 clickable_tip(
-                    rx.hstack(rx.text("Empfänger", font_size="11px", color="#888"), rx.icon("lightbulb", size=12, color="#d98030"), spacing="1", align="center", cursor="pointer"),
+                    rx.hstack(rx.text("Empfänger", font_size="11px", color="#888"), rx.icon("lightbulb", size=12, color="#FFD700"), spacing="1", align="center", cursor="pointer"),
                     rx.vstack(
                         rx.text("Benutzername (z.B. Lord Helmchen)", font_size="12px", color="#ddd"),
                         rx.text("Oder leer = Hauptnutzer", font_size="12px", color="#ddd"),
