@@ -1043,8 +1043,8 @@ def _tool_plugin_row(plugin_info: rx.Var) -> rx.Component:
     return rx.hstack(
         rx.icon("puzzle", size=14, color=rx.cond(plugin_info["enabled"], "#4CAF50", "#666")),
         rx.text(
-            plugin_info["display_name"],
-            font_size="12px",
+            plugin_info["display"],
+            font_size="14px",
             color=rx.cond(plugin_info["enabled"], "white", "#999"),
         ),
         rx.spacer(),
@@ -1076,7 +1076,7 @@ def _plugins_view() -> rx.Component:
 
         header = rx.hstack(
             rx.icon(plugin.icon, size=14, color=rx.cond(enabled_var, "#4CAF50", "#666")),
-            rx.text(plugin.display_name, font_size="12px", color=rx.cond(enabled_var, "white", "#999")),
+            rx.text(plugin.display_name, font_size="14px", color=rx.cond(enabled_var, "white", "#999")),
             rx.spacer(),
             rx.icon_button(
                 rx.icon("settings", size=14),
@@ -1164,11 +1164,11 @@ def _plugins_view() -> rx.Component:
         rx.box(
             rx.vstack(
                 # Channels
-                rx.text(t("plugin_channels"), font_size="12px", font_weight="bold", color="#999"),
+                rx.text(t("plugin_channels"), font_size="14px", font_weight="bold", color="#999"),
                 rx.vstack(*channel_rows, spacing="2", width="100%"),
                 rx.divider(),
                 # Tool Plugins
-                rx.text(t("plugin_tools"), font_size="12px", font_weight="bold", color="#999"),
+                rx.text(t("plugin_tools"), font_size="14px", font_weight="bold", color="#999"),
                 rx.vstack(
                     rx.foreach(AIState.tool_plugins, _tool_plugin_row),
                     spacing="2",
