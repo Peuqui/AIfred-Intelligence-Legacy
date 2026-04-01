@@ -317,6 +317,7 @@ class ChatMixin(rx.State, mixin=True):
             "round_num": round_num,
             "metadata": msg_metadata,
             "timestamp": datetime.now().isoformat(),
+            "time_display": datetime.now().strftime("%d.%m. \u2014 %H:%M"),
             "used_sources": [],
             "failed_sources": [],
             "has_audio": bool(audio_urls),
@@ -688,6 +689,7 @@ class ChatMixin(rx.State, mixin=True):
                 "images": [{"name": img.get("name", ""), "url": img.get("url", "")} for img in self.pending_images] if has_pending_images else []  # type: ignore[attr-defined]
             },
             "timestamp": datetime.now().isoformat(),
+            "time_display": datetime.now().strftime("%d.%m. \u2014 %H:%M"),
             "used_sources": [],
             "failed_sources": [],
             "has_audio": False,

@@ -96,6 +96,15 @@ def render_user_message(msg: dict) -> rx.Component:
                 ),
                 # Content (text message)
                 rx.markdown(msg["content"], color=COLORS["user_text"], font_size="13px", component_map=MARKDOWN_COMPONENT_MAP, overflow_x="auto"),
+                # Timestamp (bottom right)
+                rx.text(
+                    msg["time_display"],
+                    font_size="10px",
+                    color="#666",
+                    text_align="right",
+                    width="100%",
+                    margin_top="4px",
+                ),
                 padding="12px 16px 12px 12px",
                 border_radius="6px",
                 max_width="70%",

@@ -238,11 +238,17 @@ def format_performance_footer(metadata: dict) -> str:
     if not perf_parts and not info_parts:
         return ""
 
+    # Timestamp
+    from datetime import datetime as _dt
+    time_parts = [_dt.now().strftime("%d.%m.\u00A0\u2014\u00A0%H:%M")]
+
     groups: list[str] = []
     if perf_parts:
         groups.append("    ".join(perf_parts))
     if info_parts:
         groups.append("    ".join(info_parts))
+    if time_parts:
+        groups.append("    ".join(time_parts))
     metadata_text = "\u00A0\u00A0\u00A0 ".join(groups)
     return format_metadata(metadata_text)
 
@@ -319,11 +325,16 @@ def build_inference_metadata(
     info_parts.append(f"Source:\u00A0{source_display.replace(' ', chr(0xA0))}")
     # Within groups: "    " → non-breaking spaces (no wrap)
     # Between groups: 3 nbsp + regular space → allows line break on mobile
+    from datetime import datetime as _dt
+    time_parts = [_dt.now().strftime("%d.%m.\u00A0\u2014\u00A0%H:%M")]
+
     groups = []
     if perf_parts:
         groups.append("    ".join(perf_parts))
     if info_parts:
         groups.append("    ".join(info_parts))
+    if time_parts:
+        groups.append("    ".join(time_parts))
     metadata_display = format_metadata("\u00A0\u00A0\u00A0 ".join(groups))
 
     # --- Debug "done" message ---
