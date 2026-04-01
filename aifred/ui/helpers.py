@@ -263,6 +263,40 @@ def native_select_generic(value_var, on_change_handler, options_pairs) -> rx.Com
 
 
 # ============================================================
+# CLICKABLE TOOLTIP (replaces rx.tooltip for mobile support)
+# ============================================================
+
+def clickable_tip(trigger: rx.Component, content: str | rx.Component) -> rx.Component:
+    """A tooltip that opens on click/tap instead of hover.
+
+    Works on both desktop and mobile. Replaces rx.tooltip and rx.hover_card.
+
+    Args:
+        trigger: The component that triggers the tooltip (e.g., icon button)
+        content: Text string or rx.Component to show in the popup
+    """
+    if isinstance(content, str):
+        body = rx.text(content, font_size="12px", color="#ddd")
+    else:
+        body = content
+
+    return rx.popover.root(
+        rx.popover.trigger(trigger),
+        rx.popover.content(
+            body,
+            style={
+                "background": "#222",
+                "border": "1px solid #555",
+                "border_radius": "8px",
+                "padding": "8px 12px",
+                "max_width": "300px",
+                "z_index": "9999",
+            },
+        ),
+    )
+
+
+# ============================================================
 # SIMPLE COMPONENT HELPERS
 # ============================================================
 

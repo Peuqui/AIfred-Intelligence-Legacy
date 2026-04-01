@@ -17,7 +17,7 @@ from __future__ import annotations
 import reflex as rx
 
 from ..state import AIState
-from .helpers import t
+from .helpers import t, clickable_tip
 
 # Shared style for DOM-only input fields
 _INPUT_STYLE = {
@@ -1489,20 +1489,15 @@ def _scheduler_edit_form() -> rx.Component:
                 flex="1",
             ),
             rx.vstack(
-                rx.hover_card.root(
-                    rx.hover_card.trigger(
-                        rx.hstack(rx.text("Type", font_size="11px", color="#888"), rx.icon("lightbulb", size=12, color="#d98030"), spacing="1", align="center", cursor="help"),
-                    ),
-                    rx.hover_card.content(
-                        rx.vstack(
-                            rx.text("cron = Zeitplan", font_size="12px", color="#ddd"),
-                            rx.text("  z.B. '0 8 * * *' = täglich 8 Uhr", font_size="11px", color="#aaa"),
-                            rx.text("  '0 9 * * 1-5' = Mo-Fr 9 Uhr", font_size="11px", color="#aaa"),
-                            rx.text("interval = alle X Sekunden", font_size="12px", color="#ddd"),
-                            rx.text("once = einmalig (ISO-Datum)", font_size="12px", color="#ddd"),
-                            spacing="1",
-                        ),
-                        style={"background": "#222", "border": "1px solid #555"},
+                clickable_tip(
+                    rx.hstack(rx.text("Type", font_size="11px", color="#888"), rx.icon("lightbulb", size=12, color="#d98030"), spacing="1", align="center", cursor="pointer"),
+                    rx.vstack(
+                        rx.text("cron = Zeitplan", font_size="12px", color="#ddd"),
+                        rx.text("  z.B. '0 8 * * *' = täglich 8 Uhr", font_size="11px", color="#aaa"),
+                        rx.text("  '0 9 * * 1-5' = Mo-Fr 9 Uhr", font_size="11px", color="#aaa"),
+                        rx.text("interval = alle X Sekunden", font_size="12px", color="#ddd"),
+                        rx.text("once = einmalig (ISO-Datum)", font_size="12px", color="#ddd"),
+                        spacing="1",
                     ),
                 ),
                 rx.select(
@@ -1515,21 +1510,16 @@ def _scheduler_edit_form() -> rx.Component:
             spacing="2", width="100%",
         ),
         rx.vstack(
-            rx.hover_card.root(
-                rx.hover_card.trigger(
-                    rx.hstack(rx.text("Schedule", font_size="11px", color="#888"), rx.icon("lightbulb", size=12, color="#d98030"), spacing="1", align="center", cursor="help"),
-                ),
-                rx.hover_card.content(
-                    rx.vstack(
-                        rx.text("Cron: MIN STD TAG MON WTAG", font_size="12px", color="#ddd"),
-                        rx.text("  '0 8 * * *' = täglich 8 Uhr", font_size="11px", color="#aaa"),
-                        rx.text("  '0 9 * * 1-5' = Mo-Fr 9 Uhr", font_size="11px", color="#aaa"),
-                        rx.text("Interval: Sekunden (3600 = 1h)", font_size="12px", color="#ddd"),
-                        rx.text("Once: ISO-Datum", font_size="12px", color="#ddd"),
-                        rx.text("  z.B. 2026-04-01T10:00:00", font_size="11px", color="#aaa"),
-                        spacing="1",
-                    ),
-                    style={"background": "#222", "border": "1px solid #555"},
+            clickable_tip(
+                rx.hstack(rx.text("Schedule", font_size="11px", color="#888"), rx.icon("lightbulb", size=12, color="#d98030"), spacing="1", align="center", cursor="pointer"),
+                rx.vstack(
+                    rx.text("Cron: MIN STD TAG MON WTAG", font_size="12px", color="#ddd"),
+                    rx.text("  '0 8 * * *' = täglich 8 Uhr", font_size="11px", color="#aaa"),
+                    rx.text("  '0 9 * * 1-5' = Mo-Fr 9 Uhr", font_size="11px", color="#aaa"),
+                    rx.text("Interval: Sekunden (3600 = 1h)", font_size="12px", color="#ddd"),
+                    rx.text("Once: ISO-Datum", font_size="12px", color="#ddd"),
+                    rx.text("  z.B. 2026-04-01T10:00:00", font_size="11px", color="#aaa"),
+                    spacing="1",
                 ),
             ),
             rx.input(
@@ -1553,18 +1543,13 @@ def _scheduler_edit_form() -> rx.Component:
                 flex="1",
             ),
             rx.vstack(
-                rx.hover_card.root(
-                    rx.hover_card.trigger(
-                        rx.hstack(rx.text("Delivery", font_size="11px", color="#888"), rx.icon("lightbulb", size=12, color="#d98030"), spacing="1", align="center", cursor="help"),
-                    ),
-                    rx.hover_card.content(
-                        rx.vstack(
-                            rx.text("review = Toast in der UI", font_size="12px", color="#ddd"),
-                            rx.text("announce = an Channel senden", font_size="12px", color="#ddd"),
-                            rx.text("webhook = HTTP POST an URL", font_size="12px", color="#ddd"),
-                            spacing="1",
-                        ),
-                        style={"background": "#222", "border": "1px solid #555"},
+                clickable_tip(
+                    rx.hstack(rx.text("Delivery", font_size="11px", color="#888"), rx.icon("lightbulb", size=12, color="#d98030"), spacing="1", align="center", cursor="pointer"),
+                    rx.vstack(
+                        rx.text("review = Toast in der UI", font_size="12px", color="#ddd"),
+                        rx.text("announce = an Channel senden", font_size="12px", color="#ddd"),
+                        rx.text("webhook = HTTP POST an URL", font_size="12px", color="#ddd"),
+                        spacing="1",
                     ),
                 ),
                 rx.select(
@@ -1589,20 +1574,15 @@ def _scheduler_edit_form() -> rx.Component:
                 ),
             ),
             rx.vstack(
-                rx.hover_card.root(
-                    rx.hover_card.trigger(
-                        rx.hstack(rx.text("Tier", font_size="11px", color="#888"), rx.icon("lightbulb", size=12, color="#d98030"), spacing="1", align="center", cursor="help"),
-                    ),
-                    rx.hover_card.content(
-                        rx.vstack(
-                            rx.text("0 = nur Lesen", font_size="12px", color="#ddd"),
-                            rx.text("1 = Kommunikation", font_size="12px", color="#ddd"),
-                            rx.text("2 = Daten schreiben", font_size="12px", color="#ddd"),
-                            rx.text("3 = System (Löschen)", font_size="12px", color="#ddd"),
-                            rx.text("4 = Admin", font_size="12px", color="#ddd"),
-                            spacing="1",
-                        ),
-                        style={"background": "#222", "border": "1px solid #555"},
+                clickable_tip(
+                    rx.hstack(rx.text("Tier", font_size="11px", color="#888"), rx.icon("lightbulb", size=12, color="#d98030"), spacing="1", align="center", cursor="pointer"),
+                    rx.vstack(
+                        rx.text("0 = nur Lesen", font_size="12px", color="#ddd"),
+                        rx.text("1 = Kommunikation", font_size="12px", color="#ddd"),
+                        rx.text("2 = Daten schreiben", font_size="12px", color="#ddd"),
+                        rx.text("3 = System (Löschen)", font_size="12px", color="#ddd"),
+                        rx.text("4 = Admin", font_size="12px", color="#ddd"),
+                        spacing="1",
                     ),
                 ),
                 rx.select(
@@ -1618,18 +1598,12 @@ def _scheduler_edit_form() -> rx.Component:
         rx.cond(
             AIState.scheduler_edit_delivery == "announce",
             rx.vstack(
-                rx.hover_card.root(
-                    rx.hover_card.trigger(
-                        rx.hstack(rx.text("Empfänger", font_size="11px", color="#888"), rx.icon("lightbulb", size=12, color="#d98030"), spacing="1", align="center", cursor="help"),
-                    ),
-                    rx.hover_card.content(
-                        rx.vstack(
-                            rx.text("Telegram: Chat-ID (z.B. 8669153916)", font_size="12px", color="#ddd"),
-                            rx.text("Discord: Channel-ID", font_size="12px", color="#ddd"),
-                            rx.text("Email: E-Mail-Adresse", font_size="12px", color="#ddd"),
-                            spacing="1",
-                        ),
-                        style={"background": "#222", "border": "1px solid #555"},
+                clickable_tip(
+                    rx.hstack(rx.text("Empfänger", font_size="11px", color="#888"), rx.icon("lightbulb", size=12, color="#d98030"), spacing="1", align="center", cursor="pointer"),
+                    rx.vstack(
+                        rx.text("Benutzername (z.B. Lord Helmchen)", font_size="12px", color="#ddd"),
+                        rx.text("Oder leer = Hauptnutzer", font_size="12px", color="#ddd"),
+                        spacing="1",
                     ),
                 ),
                 rx.input(
