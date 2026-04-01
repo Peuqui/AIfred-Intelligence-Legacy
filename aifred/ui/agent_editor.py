@@ -165,6 +165,87 @@ def _editor_header() -> rx.Component:
 
 
 # ============================================================
+# TOOL PILLS — grouped by plugin (built statically)
+# ============================================================
+
+def _build_tool_pill(tool_name: str) -> rx.Component:
+    """Render a single tool as a clickable pill toggle (orange active style)."""
+    is_enabled = AIState.editor_tools[tool_name].to(bool)
+    return rx.button(
+        tool_name,
+        on_click=AIState.toggle_editor_tool(tool_name),
+        size="1",
+        variant=rx.cond(is_enabled, "solid", "soft"),
+        color_scheme=rx.cond(is_enabled, "orange", "gray"),
+        cursor="pointer",
+        font_size="11px",
+        padding_x="10px",
+        height="26px",
+    )
+
+
+def _build_tool_groups() -> list[rx.Component]:
+    """Build tool pill groups at build-time, grouped by plugin."""
+    from ..lib.plugin_registry import discover_tools, all_channels
+    from ..lib.plugin_base import PluginContext
+
+    ctx = PluginContext(agent_id="__build__", lang="de", session_id="")
+    groups: list[rx.Component] = []
+
+    # Memory (always first)
+    groups.append(
+        rx.vstack(
+            rx.text("Memory", font_size="10px", color="#888"),
+            rx.flex(
+                _build_tool_pill("store_memory"),
+                wrap="wrap", gap="4px",
+            ),
+            spacing="1", width="100%",
+        )
+    )
+
+    # Tool plugins
+    for plugin in discover_tools():
+        if not plugin.is_available():
+            continue
+        tool_names = [t.name for t in plugin.get_tools(ctx)]
+        if not tool_names:
+            continue
+        groups.append(
+            rx.vstack(
+                rx.text(plugin.display_name, font_size="10px", color="#888"),
+                rx.flex(
+                    *[_build_tool_pill(name) for name in tool_names],
+                    wrap="wrap", gap="4px",
+                ),
+                spacing="1", width="100%",
+            )
+        )
+
+    # Channel tools
+    channel_pills: list[rx.Component] = []
+    for ch in all_channels().values():
+        if not ch.is_configured():
+            continue
+        for tool in ch.get_tools(ctx):
+            channel_pills.append(_build_tool_pill(tool.name))
+    if channel_pills:
+        groups.append(
+            rx.vstack(
+                rx.text("Channels", font_size="10px", color="#888"),
+                rx.flex(*channel_pills, wrap="wrap", gap="4px"),
+                spacing="1", width="100%",
+            )
+        )
+
+    return groups
+
+
+# Pre-build tool groups at import time
+_tool_groups = _build_tool_groups()
+
+
+# ============================================================
 # PROMPT TAB BUTTON (for foreach)
 # ============================================================
 
@@ -514,6 +595,47 @@ def _config_view() -> rx.Component:
                         border_radius="8px",
                         border="1px solid #333",
                         overflow="hidden",
+                    ),
+                ),
+
+                # ── Tool Whitelist (only existing agents, not vision) ──
+                rx.cond(
+                    ~is_new & (AIState.editor_role != "vision"),
+                    rx.vstack(
+                        rx.hstack(
+                            rx.text(
+                                "Tools",
+                                color="#FFD700",
+                                font_weight="bold",
+                                font_size="14px",
+                            ),
+                            rx.spacer(),
+                            rx.button(
+                                t("tools_all_on"),
+                                on_click=AIState.set_all_editor_tools(True),
+                                size="1",
+                                variant="soft",
+                                color_scheme="green",
+                                cursor="pointer",
+                            ),
+                            rx.button(
+                                t("tools_all_off"),
+                                on_click=AIState.set_all_editor_tools(False),
+                                size="1",
+                                variant="soft",
+                                color_scheme="red",
+                                cursor="pointer",
+                            ),
+                            width="100%",
+                            align="center",
+                        ),
+                        rx.vstack(
+                            *_tool_groups,
+                            spacing="2",
+                            width="100%",
+                        ),
+                        spacing="2",
+                        width="100%",
                     ),
                 ),
 

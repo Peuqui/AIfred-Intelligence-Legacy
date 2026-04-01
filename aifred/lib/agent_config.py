@@ -45,6 +45,9 @@ class AgentConfig:
         "thinking": True,
     })
 
+    # Tool whitelist — None means all tools allowed
+    tools: Optional[list[str]] = None
+
     def to_dict(self) -> dict:
         return asdict(self)
 
@@ -142,6 +145,7 @@ def _dict_to_config(data: dict) -> AgentConfig:
         role=data["role"],
         prompts=data.get("prompts", {}),
         toggles=data.get("toggles", {}),
+        tools=data.get("tools"),
     )
 
 

@@ -1021,6 +1021,9 @@ class AgentConfigMixin(rx.State, mixin=True):
     # Emoji picker visibility
     editor_emoji_picker_open: bool = False
 
+    # Tool whitelist editor — list of all tool names with enabled/disabled state
+    editor_tools: Dict[str, bool] = {}
+
 
     @rx.var(deps=["_agent_dropdown_items"], auto_deps=False)
     def agent_dropdown_options(self) -> List[str]:
@@ -1369,6 +1372,32 @@ class AgentConfigMixin(rx.State, mixin=True):
         self.editor_dirty = False
         self.editor_reset_confirm = False
 
+        # Load tool whitelist — None means all tools allowed
+        from ..lib.plugin_registry import discover_tools
+        from ..lib.plugin_base import PluginContext
+        # Collect all available tool names
+        all_tool_names: list[str] = []
+        ctx = PluginContext(agent_id=agent_id, lang="de", session_id="")
+        for p in discover_tools():
+            if p.is_available():
+                for t in p.get_tools(ctx):
+                    all_tool_names.append(t.name)
+        # Memory tool
+        all_tool_names.append("store_memory")
+        # Channel tools
+        from ..lib.plugin_registry import all_channels
+        for ch in all_channels().values():
+            if ch.is_configured():
+                for t in ch.get_tools(ctx):
+                    all_tool_names.append(t.name)
+
+        if config.tools is None:
+            # None = all allowed
+            self.editor_tools = {name: True for name in all_tool_names}
+        else:
+            allowed = set(config.tools)
+            self.editor_tools = {name: name in allowed for name in all_tool_names}
+
         # Load TTS settings for this agent — always start with XTTS
         self.editor_tts_engine = "xtts"  # type: ignore[attr-defined]
         self._load_editor_tts_settings()  # type: ignore[attr-defined]
@@ -1438,6 +1467,16 @@ class AgentConfigMixin(rx.State, mixin=True):
         """Update editor role field."""
         self.editor_role = value
 
+    def toggle_editor_tool(self, tool_name: str) -> None:
+        """Toggle a single tool in the editor whitelist."""
+        tools = dict(self.editor_tools)
+        tools[tool_name] = not tools.get(tool_name, True)
+        self.editor_tools = tools
+
+    def set_all_editor_tools(self, enabled: bool) -> None:
+        """Enable or disable all tools at once."""
+        self.editor_tools = {name: enabled for name in self.editor_tools}
+
     def toggle_emoji_picker(self) -> None:
         """Toggle the emoji picker visibility."""
         self.editor_emoji_picker_open = not self.editor_emoji_picker_open
@@ -1483,6 +1522,13 @@ class AgentConfigMixin(rx.State, mixin=True):
         # Always sync prompt (even if empty — user may have cleared it)
         self._editor_prompt_content = vals.get("prompt", self._editor_prompt_content)
 
+        # Build tools whitelist from editor state
+        # If all tools are enabled → save as None (= all allowed, no whitelist)
+        all_enabled = all(self.editor_tools.values())
+        tools_value = None if all_enabled else [
+            name for name, enabled in self.editor_tools.items() if enabled
+        ]
+
         if self.editor_agent_id:
             # Update existing agent metadata
             update_agent(self.editor_agent_id, {
@@ -1490,6 +1536,7 @@ class AgentConfigMixin(rx.State, mixin=True):
                 "emoji": self.editor_emoji,
                 "description": self._editor_description,
                 "role": self.editor_role,
+                "tools": tools_value,
             })
 
             # Save current prompt tab content to file

@@ -123,16 +123,28 @@ class SystemMonitorPlugin:
                 except Exception as e:
                     result["disks"] = {"error": str(e)}
 
-            # Temperatures (optional)
+            # Temperatures (optional) — extract key values only
             if check_all or "temp" in parts:
                 try:
                     sensors_out = subprocess.check_output(
                         ["sensors", "-j"], text=True, timeout=5
                     )
                     import json as _json
-                    result["sensors"] = _json.loads(sensors_out)
+                    raw = _json.loads(sensors_out)
+                    temps: dict[str, str] = {}
+                    for chip, data in raw.items():
+                        if not isinstance(data, dict):
+                            continue
+                        for label, values in data.items():
+                            if not isinstance(values, dict):
+                                continue
+                            for key, val in values.items():
+                                if "input" in key and isinstance(val, (int, float)) and val > 0:
+                                    temps[f"{chip}/{label}"] = f"{val:.0f}°C"
+                    if temps:
+                        result["temps"] = temps
                 except (FileNotFoundError, subprocess.CalledProcessError):
-                    pass  # sensors not installed, skip silently
+                    pass
                 except Exception:
                     pass
 
@@ -163,7 +175,17 @@ class SystemMonitorPlugin:
         return tools
 
     def get_prompt_instructions(self, lang: str) -> str:
-        return ""
+        if lang == "de":
+            return (
+                "## System Monitor\n"
+                "Wenn du system_status aufrufst, antworte IMMER mit einer kompakten Tabelle. "
+                "Kein Fließtext, keine Kommentare, keine Analogien. Nur die Daten."
+            )
+        return (
+            "## System Monitor\n"
+            "When using system_status, ALWAYS respond with a compact table. "
+            "No prose, no commentary, no analogies. Data only."
+        )
 
     def get_ui_status(self, tool_name: str, tool_args: dict[str, Any], lang: str) -> str:
         return "📊 System Status"

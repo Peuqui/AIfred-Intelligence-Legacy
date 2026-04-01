@@ -446,6 +446,13 @@ async def prepare_agent_toolkit(
     from .security import filter_tools_by_tier
     all_tools = filter_tools_by_tier(all_tools, max_tier)
 
+    # Per-agent tool whitelist (from agents.json)
+    from .agent_config import get_agent_config
+    agent_cfg = get_agent_config(agent_id)
+    if agent_cfg and agent_cfg.tools is not None:
+        allowed = set(agent_cfg.tools)
+        all_tools = [t for t in all_tools if t.name in allowed]
+
     toolkit = ToolKit(
         tools=all_tools,
         _session_id=session_id or "",
