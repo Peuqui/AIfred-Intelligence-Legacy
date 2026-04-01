@@ -184,7 +184,8 @@ class SystemMonitorPlugin:
                 "- GPU: VRAM belegt / gesamt + Temperatur + Auslastung %\n"
                 "- Disk: belegt / gesamt + Auslastung %\n"
                 "- CPU: Load + Anzahl Cores\n"
-                "Kein Fliesstext, keine Kommentare, keine Analogien."
+                "Kein Fliesstext, keine Kommentare, keine Analogien.\n"
+                "WICHTIG: Rufe system_status DIREKT auf. NIEMALS ueber den Scheduler!"
             )
         return (
             "## System Monitor\n"
@@ -194,7 +195,8 @@ class SystemMonitorPlugin:
             "- GPU: VRAM used / total + temp + utilization %\n"
             "- Disk: used / total + usage %\n"
             "- CPU: load + core count\n"
-            "No prose, no commentary, no analogies."
+            "No prose, no commentary, no analogies.\n"
+            "IMPORTANT: Call system_status DIRECTLY. NEVER use the scheduler!"
         )
 
     def get_ui_status(self, tool_name: str, tool_args: dict[str, Any], lang: str) -> str:
