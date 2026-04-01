@@ -6,7 +6,7 @@ import reflex as rx
 
 from ..state import AIState
 from ..theme import COLORS
-from .helpers import t
+from .helpers import t, clickable_tip
 
 from .helpers import native_select_generic
 from .settings_accordion import llm_parameters_accordion
@@ -249,6 +249,20 @@ def image_upload_section() -> rx.Component:
                 border="none",
                 padding="0",
                 flex=["1 1 0%", "1 1 0%", "0 0 auto"],  # Mobile: 1x share, Desktop: auto
+            ),
+
+            # Help button (lightbulb) — explains all input buttons
+            clickable_tip(
+                rx.icon("lightbulb", size=16, color="#d98030", cursor="pointer"),
+                rx.vstack(
+                    rx.text("Eingabe-Optionen", font_size="13px", font_weight="bold", color="#d98030"),
+                    rx.text("Aufnahme — Spracheingabe per Mikrofon", font_size="11px", color="#ccc"),
+                    rx.text("Kamera — Foto aufnehmen (Handy/Webcam)", font_size="11px", color="#ccc"),
+                    rx.text("Bild hochladen — Bilder per Drag & Drop", font_size="11px", color="#ccc"),
+                    rx.text("Dokument — Dateien verwalten, hochladen, indexieren", font_size="11px", color="#ccc"),
+                    rx.text("Audio — Audiodatei hochladen (WAV, MP3)", font_size="11px", color="#ccc"),
+                    spacing="1",
+                ),
             ),
 
             # Hidden upload for MediaRecorder (JavaScript will populate this)
