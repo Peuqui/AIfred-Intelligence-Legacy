@@ -29,12 +29,18 @@ File access to the documents directory (`data/documents/`) and semantic search v
 | `search_documents` | Search indexed documents semantically | READONLY |
 | `list_indexed` | List all indexed documents | READONLY |
 | `delete_document` | Remove a document from the vector database | WRITE_SYSTEM |
+| `chromadb_stats` | Show all ChromaDB collections with entry counts | READONLY |
+| `chromadb_clear` | Clear all entries from a collection | WRITE_SYSTEM |
 
 **Features:**
 - Page-by-page PDF reading (`pages="3,7,10-12"`)
+- Line-range reading for large text files (`line_start`/`line_end`)
 - Path traversal protection (confined to `data/documents/`)
 - Write verify: files are read back after writing and compared
 - Writing restricted to text formats (.txt, .md, .csv, .json, .xml, .html)
+- Central ChromaDB management (Research Cache, Documents, Agent Memories)
+
+> **Details:** [Workspace Plugin](plugins/workspace.md)
 
 ---
 
@@ -57,6 +63,8 @@ Full CRUD access to the [EssentialPIM](https://www.essentialpim.com/) Firebird d
 - Anti-hallucination guardrails
 - Field mapping (English to German)
 
+> **Details:** [EPIM Plugin](plugins/epim.md)
+
 ---
 
 ### Web Research
@@ -75,6 +83,8 @@ Automatic web research with multiple search APIs and semantic cache.
 - Result scraping and ranking
 - Semantic vector cache via ChromaDB
 
+> **Details:** [Research Plugin](plugins/research.md)
+
 ---
 
 ### Sandbox (Code Execution)
@@ -87,6 +97,8 @@ Isolated Python code execution in subprocess.
 |------|------------|------|
 | `execute_code` | Run Python code (numpy, pandas, matplotlib, plotly, etc.) | WRITE_DATA |
 
+> **Details:** [Sandbox Plugin](plugins/sandbox.md)
+
 ---
 
 ### Calculator
@@ -96,6 +108,8 @@ Isolated Python code execution in subprocess.
 | Tool | Description | Tier |
 |------|------------|------|
 | `calculate` | Evaluate mathematical expressions | READONLY |
+
+> **Details:** [Calculator Plugin](plugins/calculator.md)
 
 ---
 
@@ -108,6 +122,8 @@ Isolated Python code execution in subprocess.
 | `audio_play` | Play audio file (WAV, MP3) | WRITE_DATA |
 | `audio_stop` | Stop playback | WRITE_DATA |
 | `audio_status` | Query playback status | READONLY |
+
+> **Details:** [Audio Player Plugin](plugins/audio-player.md)
 
 ---
 
@@ -128,6 +144,8 @@ Scheduled tasks (cron jobs) for AIfred.
 - Isolated sessions per job
 - Webhook API for external triggers
 
+> **Details:** [Scheduler Plugin](plugins/scheduler.md)
+
 ---
 
 ## Channel Plugins
@@ -146,6 +164,8 @@ IMAP IDLE push-based email monitor with SMTP auto-reply.
 - Flag management (read/unread/flagged)
 - Auto-reply configurable per channel
 
+> **Details:** [Email Plugin](plugins/email.md)
+
 ---
 
 ### Discord
@@ -159,6 +179,8 @@ Discord bot with channel and DM support.
 - `/clear` slash command
 - Channel and DM messages
 
+> **Details:** [Discord Plugin](plugins/discord.md)
+
 ---
 
 ### Telegram
@@ -171,6 +193,8 @@ Telegram bot via long polling.
 - Whitelist-based access
 - Auto-reply configurable
 - Setup guide: [Telegram Setup](telegram-setup.md)
+
+> **Details:** [Telegram Plugin](plugins/telegram.md)
 
 ---
 

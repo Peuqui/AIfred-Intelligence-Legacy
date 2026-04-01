@@ -29,12 +29,18 @@ Dateizugriff auf das Dokumenten-Verzeichnis (`data/documents/`) und semantische 
 | `search_documents` | Indexierte Dokumente semantisch durchsuchen | READONLY |
 | `list_indexed` | Alle indexierten Dokumente anzeigen | READONLY |
 | `delete_document` | Dokument aus Vektordatenbank entfernen | WRITE_SYSTEM |
+| `chromadb_stats` | Alle ChromaDB-Collections mit Eintragsanzahl anzeigen | READONLY |
+| `chromadb_clear` | Alle Einträge einer Collection löschen | WRITE_SYSTEM |
 
 **Features:**
 - PDF-Lesen seitenweise (`pages="3,7,10-12"`)
+- Textdateien abschnittweise lesen (`line_start`/`line_end` für große Dateien)
 - Path-Traversal-Schutz (nur `data/documents/`)
 - Write-Verify: Geschriebene Dateien werden nach Schreiben zurückgelesen und verglichen
 - Schreiben nur für Textformate (.txt, .md, .csv, .json, .xml, .html)
+- Zentrale ChromaDB-Verwaltung (Research Cache, Documents, Agent Memories)
+
+> **Details:** [Workspace Plugin](plugins/workspace.md)
 
 ---
 
@@ -57,6 +63,8 @@ Vollzugriff auf die [EssentialPIM](https://www.essentialpim.com/) Firebird-Daten
 - Anti-Halluzinations-Guardrails
 - Field-Mapping (Englisch → Deutsch)
 
+> **Details:** [EPIM Plugin](plugins/epim.md)
+
 ---
 
 ### Web Research
@@ -75,6 +83,8 @@ Automatische Web-Recherche mit mehreren Such-APIs und semantischem Cache.
 - Scraping und Ranking der Ergebnisse
 - Semantischer Vector-Cache via ChromaDB (vermeidet Doppel-Suchen)
 
+> **Details:** [Research Plugin](plugins/research.md)
+
 ---
 
 ### Sandbox (Code-Ausführung)
@@ -92,6 +102,8 @@ Isolierte Python-Code-Ausführung in Subprocess.
 - Unterstützt interaktive HTML/JS-Visualisierungen
 - Timeout-Schutz
 
+> **Details:** [Sandbox Plugin](plugins/sandbox.md)
+
 ---
 
 ### Calculator
@@ -103,6 +115,8 @@ Mathematische Berechnungen.
 | Tool | Beschreibung | Tier |
 |------|-------------|------|
 | `calculate` | Mathematische Ausdrücke berechnen | READONLY |
+
+> **Details:** [Calculator Plugin](plugins/calculator.md)
 
 ---
 
@@ -117,6 +131,8 @@ Audio-Wiedergabe auf dem Server.
 | `audio_play` | Audio-Datei abspielen (WAV, MP3) | WRITE_DATA |
 | `audio_stop` | Wiedergabe stoppen | WRITE_DATA |
 | `audio_status` | Wiedergabe-Status abfragen | READONLY |
+
+> **Details:** [Audio Player Plugin](plugins/audio-player.md)
 
 ---
 
@@ -137,6 +153,8 @@ Geplante Aufgaben (Cron-Jobs) für AIfred.
 - Isolierte Sessions pro Job
 - Webhook-API für externe Trigger
 
+> **Details:** [Scheduler Plugin](plugins/scheduler.md)
+
 ---
 
 ## Channel Plugins
@@ -155,6 +173,8 @@ IMAP IDLE Push-basierter E-Mail-Monitor mit SMTP Auto-Reply.
 - Markieren (gelesen/ungelesen/markiert)
 - Auto-Reply pro Kanal konfigurierbar
 
+> **Details:** [Email Plugin](plugins/email.md)
+
 ---
 
 ### Discord
@@ -168,6 +188,8 @@ Discord Bot mit Channel- und DM-Support.
 - `/clear` Slash Command
 - Kanal- und DM-Nachrichten
 
+> **Details:** [Discord Plugin](plugins/discord.md)
+
 ---
 
 ### Telegram
@@ -180,6 +202,8 @@ Telegram Bot via Long Polling.
 - Whitelist-basierter Zugang
 - Auto-Reply konfigurierbar
 - Setup-Guide: [Telegram Setup](telegram-setup.md)
+
+> **Details:** [Telegram Plugin](plugins/telegram.md)
 
 ---
 

@@ -51,11 +51,12 @@ Das LLM entscheidet autonom welche Tools es braucht — OpenAI-kompatible Tool-I
 
 ### 🎤 Sprach- & Vision-Interface
 
-- **Sprachschnittstelle**: STT (Whisper) und TTS (Edge TTS, XTTS v2 Voice Cloning, MOSS-TTS 1.7B, DashScope Qwen3-TTS Cloud-Streaming, Piper, espeak). Agentenspezifische Stimmen, Tonhöhen-Kontrolle, nahtlose Echtzeit-Audioausgabe
+- **Sprachschnittstelle**: STT (Whisper) und TTS (Edge TTS, XTTS v2 Voice Cloning, MOSS-TTS 1.7B, DashScope Qwen3-TTS Cloud-Streaming, Piper, espeak). Per-Agent TTS-Konfiguration (Stimme, Speed, Pitch, Ein/Aus pro Agent), nahtlose Echtzeit-Audioausgabe
 - **Vision/OCR**: Bildanalyse mit multimodalen LLMs (DeepSeek-OCR, Qwen3-VL, Ministral-3), VL Follow-Up, interaktiver Bild-Zuschnitt, 2-Modell-Architektur (Vision-LLM + Haupt-LLM)
 
 ### 🖥️ UI & Session-Verwaltung
 
+- **Zentrales Einstellungs-Modal** (☰ Hamburger-Menü): Agenten-Editor (Metadata, TTS, Prompts), Memory-Browser (pro Agent mit Type-Filter), Datenbank-Verwaltung (ChromaDB: Research Cache, Documents — durchsuchen, einzeln oder komplett löschen), Plugin Manager, Audit-Log
 - **Benutzer-Authentifizierung**: Username + Passwort mit Whitelist-Registrierung
 - **Session-Verwaltung**: Chat-Liste mit LLM-generierten Titeln, Session-Wechsel, persistente History
 - **Chat teilen**: Export als portable HTML-Datei (KaTeX-Fonts inline, TTS-Audio eingebettet, offline-fähig)

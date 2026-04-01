@@ -51,11 +51,12 @@ The LLM autonomously decides which tools to use — OpenAI-compatible tool infra
 
 ### 🎤 Voice & Vision Interface
 
-- **Voice Interface**: STT (Whisper) and TTS (Edge TTS, XTTS v2 Voice Cloning, MOSS-TTS 1.7B, DashScope Qwen3-TTS Cloud Streaming, Piper, espeak). Per-agent voices, pitch control, gapless realtime audio playback
+- **Voice Interface**: STT (Whisper) and TTS (Edge TTS, XTTS v2 Voice Cloning, MOSS-TTS 1.7B, DashScope Qwen3-TTS Cloud Streaming, Piper, espeak). Per-agent TTS configuration (voice, speed, pitch, on/off per agent), gapless realtime audio playback
 - **Vision/OCR**: Image analysis with multimodal LLMs (DeepSeek-OCR, Qwen3-VL, Ministral-3), VL Follow-Up, interactive image crop, 2-model architecture (Vision-LLM + Main-LLM)
 
 ### 🖥️ UI & Session Management
 
+- **Central Settings Modal** (☰ hamburger menu): Agent Editor (metadata, TTS, prompts), Memory Browser (per-agent with type filter), Database Management (ChromaDB: Research Cache, Documents — browse, delete individual or clear all), Plugin Manager, Audit Log
 - **User Authentication**: Username + password login with whitelist-based registration
 - **Session Management**: Chat list with LLM-generated titles, session switching, persistent history
 - **Share Chat**: Export as portable HTML file (KaTeX fonts inline, TTS audio embedded, works offline)
