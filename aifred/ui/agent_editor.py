@@ -483,7 +483,7 @@ def _config_view() -> rx.Component:
                             ["main", "critic", "judge", "custom"],
                             value=AIState.editor_role,
                             on_change=AIState.set_editor_role,
-                            size="1",
+                            size="2",
                             width="120px",
                         ),
                         spacing="1",
