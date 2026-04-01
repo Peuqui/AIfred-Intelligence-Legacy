@@ -65,6 +65,33 @@ def read_and_clear_hub_notification() -> dict | None:
         return None
 
 
+def resolve_user_name(channel: str, channel_id: str, sender: str) -> str:
+    """Resolve external identity to AIfred user name via user_mapping.json.
+
+    Checks if the channel_id (e.g. telegram user ID, email address)
+    is mapped to a known AIfred user. Returns the mapped name or
+    the original sender name if no mapping exists.
+    """
+    import json
+    from .config import DATA_DIR
+
+    mapping_path = DATA_DIR / "user_mapping.json"
+    if not mapping_path.exists():
+        return sender
+
+    try:
+        mappings = json.loads(mapping_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return sender
+
+    for user_name, channels in mappings.items():
+        ids = channels.get(channel, [])
+        if channel_id in ids or sender in ids:
+            return user_name
+
+    return sender
+
+
 def detect_target_agent(text: str) -> str:
     """Detect if a message is addressed to a specific agent.
 
@@ -106,6 +133,13 @@ async def process_inbound(message: InboundMessage) -> Optional[OutboundMessage]:
     # 1. Sanitize inbound text (strip HTML, zero-width chars, normalize)
     from .security import sanitize_inbound
     message.text = sanitize_inbound(message.text)
+
+    # 1b. Resolve external identity to AIfred user name
+    original_sender = message.sender
+    resolved_name = resolve_user_name(message.channel, message.channel_id, message.sender)
+    if resolved_name != message.sender:
+        log_message(f"User mapping: {message.sender} -> {resolved_name}")
+        message.sender = resolved_name
 
     # 2. Detect target agent from message text
     message.target_agent = detect_target_agent(message.text)
@@ -159,7 +193,10 @@ async def process_inbound(message: InboundMessage) -> Optional[OutboundMessage]:
         if plugin:
             llm_context = plugin.build_context(message)
         else:
-            llm_context = f"[{channel_label} from {message.sender}]\n\n{message.text}"
+            sender_info = message.sender
+            if original_sender != message.sender:
+                sender_info = f"{message.sender} (via {original_sender})"
+            llm_context = f"[{channel_label} from {sender_info}]\n\n{message.text}"
 
         # Wrap external messages in security delimiters
         from .security import wrap_external_message

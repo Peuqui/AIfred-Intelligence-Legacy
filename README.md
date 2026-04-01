@@ -35,7 +35,8 @@ The LLM autonomously decides which tools to use — OpenAI-compatible tool infra
 - **Multi-Agent Debate System**: AIfred + Sokrates + Salomo + Vision + unlimited custom agents
 - **Custom Agents**: Name, emoji, role, bilingual prompts (DE/EN), own long-term memory. Agent Editor in UI
 - **5 Discussion Modes**: Standard, Critical Review, Auto-Consensus, Tribunal, Symposion
-- **Direct Addressing**: Address any agent by name — also in emails via Message Hub
+- **Direct Addressing**: Address any agent by name — also via Telegram, Discord and Email through Message Hub
+- **User Mapping**: External identities (Telegram ID, email address) mapped to AIfred usernames (`data/user_mapping.json`) — AIfred recognizes you across all channels
 - **6-Layer Prompt System**: Identity + Reasoning + Multi-Agent + Task + Memory + Personality
 
 ### ⚙️ LLM Infrastructure
