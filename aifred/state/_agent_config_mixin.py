@@ -965,6 +965,20 @@ class AgentConfigMixin(rx.State, mixin=True):
     # Editor view mode: "config", "memory" or "database"
     agent_editor_mode: str = "config"
 
+    # Scheduler state
+    scheduler_job_list: List[Dict[str, str]] = []
+    scheduler_edit_id: str = ""  # Job being edited ("" = none, "new" = create)
+    scheduler_edit_name: str = ""
+    scheduler_edit_type: str = "cron"
+    scheduler_edit_expr: str = ""
+    scheduler_edit_message: str = ""
+    scheduler_edit_agent: str = "aifred"
+    scheduler_edit_delivery: str = "review"
+    scheduler_edit_channel: str = ""
+    scheduler_edit_tier: str = "1"
+    scheduler_edit_webhook_url: str = ""
+    scheduler_edit_recipient: str = ""
+
     # Database browser state (system collections: research_cache, aifred_documents)
     db_browser_collection: str = ""  # Selected collection name
     db_browser_entries: List[Dict[str, str]] = []  # Entries for selected collection
@@ -1165,6 +1179,166 @@ class AgentConfigMixin(rx.State, mixin=True):
                         "duration": f"{r['duration_ms']:.0f}ms" if r["duration_ms"] else "",
                     })
             self.audit_log_entries = entries
+        elif tab == "scheduler":
+            self._load_scheduler_jobs()
+
+    def _load_scheduler_jobs(self) -> None:
+        """Load all scheduler jobs for display."""
+        from ..lib.scheduler import get_job_store
+        store = get_job_store()
+        jobs = store.list_all()
+        self.scheduler_job_list = [
+            {
+                "job_id": str(j.job_id),
+                "name": j.name,
+                "schedule_type": j.schedule_type,
+                "schedule_expr": j.schedule_expr,
+                "enabled": "1" if j.enabled else "",
+                "next_run": j.next_run[:19] if j.next_run else "",
+                "last_run": j.last_run[:19] if j.last_run else "",
+                "created_at": j.created_at[:19] if j.created_at else "",
+                "message": j.payload.get("message", ""),
+                "agent": j.payload.get("agent", "aifred"),
+                "delivery": j.payload.get("delivery", ""),
+                "channel": j.payload.get("channel", ""),
+                "max_tier": str(j.max_tier),
+                "retry_count": str(j.retry_count),
+                "webhook_url": j.payload.get("webhook_url", ""),
+                "recipient": j.payload.get("recipient", ""),
+            }
+            for j in jobs
+        ]
+
+    def toggle_scheduler_job(self, job_id: str) -> None:
+        """Toggle a scheduler job enabled/disabled."""
+        from ..lib.scheduler import get_job_store
+        store = get_job_store()
+        job = store.get(int(job_id))
+        if job:
+            store.enable(int(job_id), not job.enabled)
+        self._load_scheduler_jobs()
+
+    def delete_scheduler_job(self, job_id: str) -> None:
+        """Delete a scheduler job."""
+        from ..lib.scheduler import get_job_store
+        store = get_job_store()
+        store.delete(int(job_id))
+        if self.scheduler_edit_id == job_id:
+            self.scheduler_edit_id = ""
+        self._load_scheduler_jobs()
+
+    def edit_scheduler_job(self, job_id: str) -> None:
+        """Load a job into the edit form."""
+        from ..lib.scheduler import get_job_store
+        store = get_job_store()
+        job = store.get(int(job_id))
+        if not job:
+            return
+        self.scheduler_edit_id = str(job.job_id)
+        self.scheduler_edit_name = job.name
+        self.scheduler_edit_type = job.schedule_type
+        self.scheduler_edit_expr = job.schedule_expr
+        self.scheduler_edit_message = job.payload.get("message", "")
+        self.scheduler_edit_agent = job.payload.get("agent", "aifred")
+        self.scheduler_edit_delivery = job.payload.get("delivery", "review")
+        self.scheduler_edit_channel = job.payload.get("channel", "")
+        self.scheduler_edit_webhook_url = job.payload.get("webhook_url", "")
+        self.scheduler_edit_recipient = job.payload.get("recipient", "")
+        self.scheduler_edit_tier = str(job.max_tier)
+
+    def new_scheduler_job(self) -> None:
+        """Open empty edit form for a new job."""
+        self.scheduler_edit_id = "new"
+        self.scheduler_edit_name = ""
+        self.scheduler_edit_type = "cron"
+        self.scheduler_edit_expr = ""
+        self.scheduler_edit_message = ""
+        self.scheduler_edit_agent = "aifred"
+        self.scheduler_edit_delivery = "review"
+        self.scheduler_edit_channel = ""
+        self.scheduler_edit_webhook_url = ""
+        self.scheduler_edit_recipient = ""
+        self.scheduler_edit_tier = "1"
+
+    def set_scheduler_edit_channel_safe(self, value: str) -> None:
+        """Set channel, converting placeholder to empty string."""
+        self.scheduler_edit_channel = "" if value in ("—", "keiner") else value
+
+    @rx.var(auto_deps=False)
+    def scheduler_agent_options(self) -> list[str]:
+        """Agent display labels for scheduler dropdown."""
+        from ..lib.agent_config import load_agents_raw
+        agents = load_agents_raw()
+        return [
+            f"{data['emoji']} {data['display_name']}"
+            for aid, data in agents.items() if aid != "vision"
+        ]
+
+    @rx.var(deps=["scheduler_edit_agent"], auto_deps=False)
+    def scheduler_edit_agent_display(self) -> str:
+        """Display label for currently selected agent in scheduler edit."""
+        from ..lib.agent_config import get_agent_config
+        cfg = get_agent_config(self.scheduler_edit_agent)
+        return f"{cfg.emoji} {cfg.display_name}" if cfg else self.scheduler_edit_agent
+
+    def set_scheduler_edit_agent_from_label(self, label: str) -> None:
+        """Resolve agent display label back to ID."""
+        from ..lib.agent_config import load_agents_raw
+        for aid, data in load_agents_raw().items():
+            if f"{data['emoji']} {data['display_name']}" == label:
+                self.scheduler_edit_agent = aid
+                return
+
+    def cancel_scheduler_edit(self) -> None:
+        """Close the edit form."""
+        self.scheduler_edit_id = ""
+
+    def save_scheduler_job(self) -> None:
+        """Save (create or update) a scheduler job."""
+        from ..lib.scheduler import get_job_store
+
+        store = get_job_store()
+        payload = {
+            "message": self.scheduler_edit_message,
+            "agent": self.scheduler_edit_agent,
+            "delivery": self.scheduler_edit_delivery,
+        }
+        if self.scheduler_edit_delivery == "announce":
+            if self.scheduler_edit_channel:
+                payload["channel"] = self.scheduler_edit_channel
+            if self.scheduler_edit_recipient:
+                payload["recipient"] = self.scheduler_edit_recipient
+        elif self.scheduler_edit_delivery == "webhook":
+            if self.scheduler_edit_webhook_url:
+                payload["webhook_url"] = self.scheduler_edit_webhook_url
+
+        if self.scheduler_edit_id == "new":
+            # Create new job
+            store.add(
+                name=self.scheduler_edit_name,
+                schedule_type=self.scheduler_edit_type,
+                schedule_expr=self.scheduler_edit_expr,
+                payload=payload,
+                max_tier=int(self.scheduler_edit_tier),
+            )
+        else:
+            # Update existing: delete + recreate (SQLite has no easy UPDATE for all fields)
+            job_id = int(self.scheduler_edit_id)
+            old_job = store.get(job_id)
+            enabled = old_job.enabled if old_job else True
+            store.delete(job_id)
+            new_job = store.add(
+                name=self.scheduler_edit_name,
+                schedule_type=self.scheduler_edit_type,
+                schedule_expr=self.scheduler_edit_expr,
+                payload=payload,
+                max_tier=int(self.scheduler_edit_tier),
+            )
+            if not enabled:
+                store.enable(new_job.job_id, False)
+
+        self.scheduler_edit_id = ""
+        self._load_scheduler_jobs()
 
     def select_editor_agent(self, label: str):
         """Select an agent from the dropdown by its display label."""

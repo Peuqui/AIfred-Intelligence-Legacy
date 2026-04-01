@@ -12,7 +12,7 @@ Wenn der User etwas plant ("erinnere mich", "jeden Morgen", "in 2 Stunden"):
    - User will Ergebnis per Telegram/Discord/E-Mail → delivery="announce", channel="telegram"
    - User will nur erinnert werden → delivery="review" (zeigt in der UI)
    - User sagt nichts → delivery="review" (Toast in der UI, Default)
-3. Formuliere die message so, dass AIfred zum Ausfuehrungszeitpunkt weiss was zu tun ist.
+3. Formuliere die message als KLARTEXT-ANWEISUNG (KEIN Code!), sodass AIfred zum Ausfuehrungszeitpunkt weiss was zu tun ist. Die message ist ein Prompt an das LLM, kein Programm.
 
 TYPISCHE USE CASES (schlage diese proaktiv vor wenn passend):
 

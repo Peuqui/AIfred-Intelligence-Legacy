@@ -12,7 +12,7 @@ When the user plans something ("remind me", "every morning", "in 2 hours"):
    - User wants result via Telegram/Discord/Email → delivery="announce", channel="telegram"
    - User just wants a reminder → delivery="review" (shows in UI)
    - User says nothing specific → delivery="review" (toast in UI, default)
-3. Formulate the message so AIfred knows what to do at execution time.
+3. Formulate the message as a PLAIN TEXT instruction (NO code!), so AIfred knows what to do at execution time. The message is a prompt to the LLM, not a program.
 
 TYPICAL USE CASES (suggest these proactively when appropriate):
 

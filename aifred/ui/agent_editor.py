@@ -106,16 +106,16 @@ def _editor_header() -> rx.Component:
                 cursor="pointer",
             ),
             rx.button(
-                rx.icon("puzzle", size=14),
-                t("tab_plugins"),
-                on_click=AIState.set_agent_editor_tab("plugins"),
+                rx.icon("clock", size=14),
+                t("tab_scheduler"),
+                on_click=AIState.set_agent_editor_tab("scheduler"),
                 size="2",
                 variant=rx.cond(
-                    AIState.agent_editor_mode == "plugins",
+                    AIState.agent_editor_mode == "scheduler",
                     "solid", "soft",
                 ),
                 color_scheme=rx.cond(
-                    AIState.agent_editor_mode == "plugins",
+                    AIState.agent_editor_mode == "scheduler",
                     "orange", "gray",
                 ),
                 cursor="pointer",
@@ -131,6 +131,21 @@ def _editor_header() -> rx.Component:
                 ),
                 color_scheme=rx.cond(
                     AIState.agent_editor_mode == "audit",
+                    "orange", "gray",
+                ),
+                cursor="pointer",
+            ),
+            rx.button(
+                rx.icon("puzzle", size=14),
+                t("tab_plugins"),
+                on_click=AIState.set_agent_editor_tab("plugins"),
+                size="2",
+                variant=rx.cond(
+                    AIState.agent_editor_mode == "plugins",
+                    "solid", "soft",
+                ),
+                color_scheme=rx.cond(
+                    AIState.agent_editor_mode == "plugins",
                     "orange", "gray",
                 ),
                 cursor="pointer",
@@ -1189,6 +1204,422 @@ def _plugins_view() -> rx.Component:
 
 
 # ============================================================
+# SCHEDULER VIEW (Job Management)
+# ============================================================
+
+def _scheduler_job_row(job: rx.Var) -> rx.Component:
+    """Render a single scheduler job as collapsible card with full details."""
+    return rx.box(
+        # Header row — always visible
+        rx.hstack(
+            rx.switch(
+                checked=job["enabled"].to(bool),
+                on_change=lambda _: AIState.toggle_scheduler_job(job["job_id"]),
+                size="1",
+            ),
+            rx.text(
+                job["name"],
+                font_size="14px",
+                font_weight="500",
+                color=rx.cond(job["enabled"], "white", "#666"),
+                flex="1",
+                min_width="0",
+                overflow="hidden",
+                text_overflow="ellipsis",
+                white_space="nowrap",
+            ),
+            rx.badge(job["schedule_type"], variant="soft", color_scheme="blue", font_size="10px"),
+            rx.icon_button(
+                rx.icon("pencil", size=12),
+                on_click=AIState.edit_scheduler_job(job["job_id"]),
+                size="1",
+                variant="ghost",
+                color_scheme="orange",
+                cursor="pointer",
+            ),
+            rx.icon_button(
+                rx.icon("trash-2", size=12),
+                on_click=AIState.delete_scheduler_job(job["job_id"]),
+                size="1",
+                variant="ghost",
+                color_scheme="red",
+                cursor="pointer",
+            ),
+            spacing="3",
+            align="center",
+            width="100%",
+        ),
+        # Details — always shown
+        rx.vstack(
+            rx.hstack(
+                rx.text("Schedule:", font_size="12px", color="#888", min_width="80px"),
+                rx.text(job["schedule_expr"], font_size="12px", color="#ccc"),
+                spacing="2",
+            ),
+            rx.hstack(
+                rx.text("Agent:", font_size="12px", color="#888", min_width="80px"),
+                rx.text(job["agent"], font_size="12px", color="#ccc"),
+                spacing="2",
+            ),
+            rx.hstack(
+                rx.text("Delivery:", font_size="12px", color="#888", min_width="80px"),
+                rx.text(job["delivery"], font_size="12px", color="#ccc"),
+                rx.cond(
+                    job["channel"] != "",
+                    rx.text(" → ", job["channel"], font_size="12px", color="#ccc"),
+                ),
+                spacing="2",
+            ),
+            rx.cond(
+                job["webhook_url"] != "",
+                rx.hstack(
+                    rx.text("Webhook:", font_size="12px", color="#888", min_width="80px"),
+                    rx.text(job["webhook_url"], font_size="12px", color="#ccc"),
+                    spacing="2",
+                ),
+            ),
+            rx.hstack(
+                rx.text("Tier:", font_size="12px", color="#888", min_width="80px"),
+                rx.text(job["max_tier"], font_size="12px", color="#ccc"),
+                spacing="2",
+            ),
+            rx.cond(
+                job["next_run"] != "",
+                rx.hstack(
+                    rx.text("Next:", font_size="12px", color="#888", min_width="80px"),
+                    rx.text(job["next_run"], font_size="12px", color="#ccc"),
+                    spacing="2",
+                ),
+            ),
+            rx.cond(
+                job["last_run"] != "",
+                rx.hstack(
+                    rx.text("Last:", font_size="12px", color="#888", min_width="80px"),
+                    rx.text(job["last_run"], font_size="12px", color="#ccc"),
+                    spacing="2",
+                ),
+            ),
+            rx.hstack(
+                rx.text("Created:", font_size="12px", color="#888", min_width="80px"),
+                rx.text(job["created_at"], font_size="12px", color="#ccc"),
+                spacing="2",
+            ),
+            rx.cond(
+                job["retry_count"] != "0",
+                rx.hstack(
+                    rx.text("Retries:", font_size="12px", color="#888", min_width="80px"),
+                    rx.text(job["retry_count"], font_size="12px", color="#ff6600"),
+                    spacing="2",
+                ),
+            ),
+            rx.hstack(
+                rx.text("Message:", font_size="12px", color="#888", min_width="80px"),
+                rx.text(
+                    job["message"],
+                    font_size="12px",
+                    color="#aaa",
+                    style={"white_space": "pre-wrap"},
+                ),
+                spacing="2",
+                align="start",
+            ),
+            spacing="1",
+            width="100%",
+            padding_top="6px",
+            padding_left="40px",
+        ),
+        padding="10px 12px",
+        background="rgba(255,255,255,0.03)",
+        border_radius="6px",
+        border="1px solid #333",
+        width="100%",
+    )
+
+
+def _scheduler_edit_form() -> rx.Component:
+    """Inline edit/create form for a scheduler job."""
+    return rx.vstack(
+        rx.hstack(
+            rx.vstack(
+                rx.text("Name", font_size="11px", color="#888"),
+                rx.input(
+                    value=AIState.scheduler_edit_name,
+                    on_change=AIState.set_scheduler_edit_name,
+                    size="2", width="100%",
+                    variant="surface",
+                ),
+                flex="1",
+            ),
+            rx.vstack(
+                rx.hover_card.root(
+                    rx.hover_card.trigger(
+                        rx.hstack(rx.text("Type", font_size="11px", color="#888"), rx.icon("lightbulb", size=12, color="#d98030"), spacing="1", align="center", cursor="help"),
+                    ),
+                    rx.hover_card.content(
+                        rx.vstack(
+                            rx.text("cron = Zeitplan", font_size="12px", color="#ddd"),
+                            rx.text("  z.B. '0 8 * * *' = täglich 8 Uhr", font_size="11px", color="#aaa"),
+                            rx.text("  '0 9 * * 1-5' = Mo-Fr 9 Uhr", font_size="11px", color="#aaa"),
+                            rx.text("interval = alle X Sekunden", font_size="12px", color="#ddd"),
+                            rx.text("once = einmalig (ISO-Datum)", font_size="12px", color="#ddd"),
+                            spacing="1",
+                        ),
+                        style={"background": "#222", "border": "1px solid #555"},
+                    ),
+                ),
+                rx.select(
+                    ["cron", "interval", "once"],
+                    value=AIState.scheduler_edit_type,
+                    on_change=AIState.set_scheduler_edit_type,
+                    size="2", width="120px",
+                ),
+            ),
+            spacing="2", width="100%",
+        ),
+        rx.vstack(
+            rx.hover_card.root(
+                rx.hover_card.trigger(
+                    rx.hstack(rx.text("Schedule", font_size="11px", color="#888"), rx.icon("lightbulb", size=12, color="#d98030"), spacing="1", align="center", cursor="help"),
+                ),
+                rx.hover_card.content(
+                    rx.vstack(
+                        rx.text("Cron: MIN STD TAG MON WTAG", font_size="12px", color="#ddd"),
+                        rx.text("  '0 8 * * *' = täglich 8 Uhr", font_size="11px", color="#aaa"),
+                        rx.text("  '0 9 * * 1-5' = Mo-Fr 9 Uhr", font_size="11px", color="#aaa"),
+                        rx.text("Interval: Sekunden (3600 = 1h)", font_size="12px", color="#ddd"),
+                        rx.text("Once: ISO-Datum", font_size="12px", color="#ddd"),
+                        rx.text("  z.B. 2026-04-01T10:00:00", font_size="11px", color="#aaa"),
+                        spacing="1",
+                    ),
+                    style={"background": "#222", "border": "1px solid #555"},
+                ),
+            ),
+            rx.input(
+                value=AIState.scheduler_edit_expr,
+                on_change=AIState.set_scheduler_edit_expr,
+                size="2", width="100%",
+                placeholder="0 8 * * *",
+                variant="surface",
+            ),
+            width="100%",
+        ),
+        rx.hstack(
+            rx.vstack(
+                rx.text("Agent", font_size="11px", color="#888"),
+                rx.select(
+                    AIState.scheduler_agent_options,
+                    value=AIState.scheduler_edit_agent_display,
+                    on_change=AIState.set_scheduler_edit_agent_from_label,
+                    size="2", width="100%",
+                ),
+                flex="1",
+            ),
+            rx.vstack(
+                rx.hover_card.root(
+                    rx.hover_card.trigger(
+                        rx.hstack(rx.text("Delivery", font_size="11px", color="#888"), rx.icon("lightbulb", size=12, color="#d98030"), spacing="1", align="center", cursor="help"),
+                    ),
+                    rx.hover_card.content(
+                        rx.vstack(
+                            rx.text("review = Toast in der UI", font_size="12px", color="#ddd"),
+                            rx.text("announce = an Channel senden", font_size="12px", color="#ddd"),
+                            rx.text("webhook = HTTP POST an URL", font_size="12px", color="#ddd"),
+                            spacing="1",
+                        ),
+                        style={"background": "#222", "border": "1px solid #555"},
+                    ),
+                ),
+                rx.select(
+                    ["review", "announce", "webhook"],
+                    value=AIState.scheduler_edit_delivery,
+                    on_change=AIState.set_scheduler_edit_delivery,
+                    size="2", width="100%",
+                ),
+                flex="1",
+            ),
+            rx.cond(
+                AIState.scheduler_edit_delivery == "announce",
+                rx.vstack(
+                    rx.text("Channel", font_size="11px", color="#888"),
+                    rx.select(
+                        ["telegram", "discord", "email"],
+                        value=AIState.scheduler_edit_channel,
+                        on_change=AIState.set_scheduler_edit_channel,
+                        size="2", width="100%",
+                    ),
+                    flex="1",
+                ),
+            ),
+            rx.vstack(
+                rx.hover_card.root(
+                    rx.hover_card.trigger(
+                        rx.hstack(rx.text("Tier", font_size="11px", color="#888"), rx.icon("lightbulb", size=12, color="#d98030"), spacing="1", align="center", cursor="help"),
+                    ),
+                    rx.hover_card.content(
+                        rx.vstack(
+                            rx.text("0 = nur Lesen", font_size="12px", color="#ddd"),
+                            rx.text("1 = Kommunikation", font_size="12px", color="#ddd"),
+                            rx.text("2 = Daten schreiben", font_size="12px", color="#ddd"),
+                            rx.text("3 = System (Löschen)", font_size="12px", color="#ddd"),
+                            rx.text("4 = Admin", font_size="12px", color="#ddd"),
+                            spacing="1",
+                        ),
+                        style={"background": "#222", "border": "1px solid #555"},
+                    ),
+                ),
+                rx.select(
+                    ["0", "1", "2", "3", "4"],
+                    value=AIState.scheduler_edit_tier,
+                    on_change=AIState.set_scheduler_edit_tier,
+                    size="2", width="70px",
+                ),
+            ),
+            spacing="2", width="100%",
+        ),
+        # Recipient (only when delivery = announce)
+        rx.cond(
+            AIState.scheduler_edit_delivery == "announce",
+            rx.vstack(
+                rx.hover_card.root(
+                    rx.hover_card.trigger(
+                        rx.hstack(rx.text("Empfänger", font_size="11px", color="#888"), rx.icon("lightbulb", size=12, color="#d98030"), spacing="1", align="center", cursor="help"),
+                    ),
+                    rx.hover_card.content(
+                        rx.vstack(
+                            rx.text("Telegram: Chat-ID (z.B. 8669153916)", font_size="12px", color="#ddd"),
+                            rx.text("Discord: Channel-ID", font_size="12px", color="#ddd"),
+                            rx.text("Email: E-Mail-Adresse", font_size="12px", color="#ddd"),
+                            spacing="1",
+                        ),
+                        style={"background": "#222", "border": "1px solid #555"},
+                    ),
+                ),
+                rx.input(
+                    value=AIState.scheduler_edit_recipient,
+                    on_change=AIState.set_scheduler_edit_recipient,
+                    size="2", width="100%",
+                    variant="surface",
+                    placeholder="Chat-ID / E-Mail / Channel-ID",
+                ),
+                width="100%",
+            ),
+        ),
+        # Webhook URL (only when delivery = webhook)
+        rx.cond(
+            AIState.scheduler_edit_delivery == "webhook",
+            rx.vstack(
+                rx.text("Webhook URL", font_size="11px", color="#888"),
+                rx.input(
+                    value=AIState.scheduler_edit_webhook_url,
+                    on_change=AIState.set_scheduler_edit_webhook_url,
+                    size="2", width="100%",
+                    variant="surface",
+                    placeholder="https://example.com/webhook",
+                ),
+                width="100%",
+            ),
+        ),
+        rx.vstack(
+            rx.text("Message (Klartext-Prompt)", font_size="11px", color="#888"),
+            rx.text_area(
+                value=AIState.scheduler_edit_message,
+                on_change=AIState.set_scheduler_edit_message,
+                width="100%",
+                min_height="100px",
+                font_size="13px",
+            ),
+            width="100%",
+        ),
+        rx.hstack(
+            rx.button(
+                t("agent_editor_save"),
+                on_click=AIState.save_scheduler_job,
+                variant="soft",
+                color_scheme="orange",
+                size="2",
+                cursor="pointer",
+            ),
+            rx.button(
+                t("db_cancel"),
+                on_click=AIState.cancel_scheduler_edit,
+                variant="soft",
+                color_scheme="gray",
+                size="2",
+                cursor="pointer",
+            ),
+            spacing="2",
+        ),
+        spacing="3",
+        width="100%",
+        padding="14px 12px",
+        background="rgba(217, 128, 48, 0.1)",
+        border="1px solid #d98030",
+        border_radius="8px",
+        overflow="visible",
+    )
+
+
+def _scheduler_view() -> rx.Component:
+    """Scheduler tab: list all scheduled jobs with toggle, delete, edit, create."""
+    return rx.vstack(
+        _editor_header(),
+        rx.box(
+            rx.vstack(
+                # New Job button
+                rx.hstack(
+                    rx.spacer(),
+                    rx.button(
+                        rx.icon("plus", size=14),
+                        t("scheduler_new_job"),
+                        on_click=AIState.new_scheduler_job,
+                        size="2",
+                        variant="soft",
+                        color_scheme="green",
+                        cursor="pointer",
+                    ),
+                    width="100%",
+                ),
+
+                # Edit/Create form (shown when editing)
+                rx.cond(
+                    AIState.scheduler_edit_id != "",
+                    _scheduler_edit_form(),
+                ),
+
+                # Job list
+                rx.cond(
+                    AIState.scheduler_job_list.length() > 0,  # type: ignore[union-attr]
+                    rx.vstack(
+                        rx.foreach(
+                            AIState.scheduler_job_list,
+                            _scheduler_job_row,
+                        ),
+                        spacing="2",
+                        width="100%",
+                    ),
+                    rx.text(
+                        t("scheduler_no_jobs"),
+                        color="#888",
+                        font_size="13px",
+                        padding_top="20px",
+                        text_align="center",
+                    ),
+                ),
+                spacing="3",
+                width="100%",
+            ),
+            flex="1",
+            overflow_y="auto",
+            width="100%",
+        ),
+        spacing="3",
+        width="100%",
+        flex="1",
+        min_height="0",
+    )
+
+
+# ============================================================
 # AUDIT VIEW (Security Audit Log)
 # ============================================================
 
@@ -1274,6 +1705,7 @@ def agent_editor_modal() -> rx.Component:
                     ("memory", _memory_view()),
                     ("database", _database_view()),
                     ("plugins", _plugins_view()),
+                    ("scheduler", _scheduler_view()),
                     ("audit", _audit_view()),
                     _config_view(),  # default
                 ),
