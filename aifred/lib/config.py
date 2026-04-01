@@ -914,6 +914,9 @@ def get_effective_model_from_settings(agent: str = "aifred") -> str:
     model_key = f"{agent}_model" if agent != "aifred" else "aifred_model"
     base_id = saved.get(model_key, "")
     if not base_id:
+        # Fall back to AIfred's model (other agents share the same LLM)
+        base_id = saved.get("aifred_model", "")
+    if not base_id:
         return base_id
 
     # Speed mode
