@@ -598,9 +598,9 @@ def _config_view() -> rx.Component:
                     ),
                 ),
 
-                # ── Tool Whitelist (only existing agents, not vision) ──
+                # ── Tool Whitelist (only existing agents) ──
                 rx.cond(
-                    ~is_new & (AIState.editor_role != "vision"),
+                    ~is_new,
                     rx.vstack(
                         rx.hstack(
                             rx.text(
