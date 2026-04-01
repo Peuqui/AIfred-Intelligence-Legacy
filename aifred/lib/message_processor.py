@@ -65,23 +65,26 @@ def read_and_clear_hub_notification() -> dict | None:
         return None
 
 
-# Agent name detection for routing
-_AGENT_KEYWORDS = {
-    "sokrates": "sokrates",
-    "salomo": "salomo",
-}
-
-
 def detect_target_agent(text: str) -> str:
     """Detect if a message is addressed to a specific agent.
 
-    Checks if the message starts with or contains an agent name.
+    Checks if the message contains an agent name or display name.
     Returns the agent ID or "aifred" as default.
     """
+    from .agent_config import load_agents_raw
+
     text_lower = text.lower().strip()
-    for keyword, agent_id in _AGENT_KEYWORDS.items():
-        if text_lower.startswith(keyword) or f"@{keyword}" in text_lower:
+
+    # Build keyword map from all registered agents (except aifred — he's the default)
+    agents = load_agents_raw()
+    for agent_id, data in agents.items():
+        if agent_id == "aifred" or agent_id == "vision":
+            continue
+        display_name = data.get("display_name", "").lower()
+        # Check agent_id and display_name anywhere in the text
+        if agent_id in text_lower or (display_name and display_name in text_lower):
             return agent_id
+
     return "aifred"
 
 
