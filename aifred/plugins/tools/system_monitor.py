@@ -178,13 +178,23 @@ class SystemMonitorPlugin:
         if lang == "de":
             return (
                 "## System Monitor\n"
-                "Wenn du system_status aufrufst, antworte IMMER mit einer kompakten Tabelle. "
-                "Kein Fließtext, keine Kommentare, keine Analogien. Nur die Daten."
+                "Wenn du system_status aufrufst, antworte mit einer kompakten Tabelle.\n"
+                "Zeige IMMER Auslastung/Belegung, nicht nur Gesamtgroessen:\n"
+                "- RAM/Swap: belegt / gesamt (z.B. '15 / 32 GB')\n"
+                "- GPU: VRAM belegt / gesamt + Temperatur + Auslastung %\n"
+                "- Disk: belegt / gesamt + Auslastung %\n"
+                "- CPU: Load + Anzahl Cores\n"
+                "Kein Fliesstext, keine Kommentare, keine Analogien."
             )
         return (
             "## System Monitor\n"
-            "When using system_status, ALWAYS respond with a compact table. "
-            "No prose, no commentary, no analogies. Data only."
+            "When using system_status, respond with a compact table.\n"
+            "ALWAYS show utilization, not just totals:\n"
+            "- RAM/Swap: used / total (e.g. '15 / 32 GB')\n"
+            "- GPU: VRAM used / total + temp + utilization %\n"
+            "- Disk: used / total + usage %\n"
+            "- CPU: load + core count\n"
+            "No prose, no commentary, no analogies."
         )
 
     def get_ui_status(self, tool_name: str, tool_args: dict[str, Any], lang: str) -> str:
