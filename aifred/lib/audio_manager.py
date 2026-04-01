@@ -80,11 +80,12 @@ class AudioManager:
         if not self.is_playing:
             return False
 
-        self._process.terminate()
-        try:
-            self._process.wait(timeout=2)
-        except subprocess.TimeoutExpired:
-            self._process.kill()
+        if self._process is not None:
+            self._process.terminate()
+            try:
+                self._process.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                self._process.kill()
 
         log_message(f"Audio Manager: stopped {Path(self._active_file).name}")
         self._process = None

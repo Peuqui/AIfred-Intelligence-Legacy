@@ -279,7 +279,7 @@ async def _stream_agent_to_history(
             state.add_debug(f"🔧 Tool call: {tool_name}({full_args[:80]})")
 
             import json as _json
-            tool_args = {}
+            tool_args: dict[str, Any] = {}
             try:
                 tool_args = _json.loads(full_args) if full_args else {}
             except (ValueError, _json.JSONDecodeError):
@@ -598,7 +598,7 @@ def _build_debate_messages(
     """
     history_messages = build_messages_from_llm_history(
         state._chat_sub().llm_history,
-        current_user_text=current_user_text,
+        current_user_text=current_user_text or "",
         perspective=perspective,
         detected_language=detected_lang,
     )
@@ -634,7 +634,7 @@ def _add_agent_result_panel(
         sync_llm_history=False,
     )
 
-    return result["text"]
+    return str(result["text"])
 
 
 def _finalize_debate(state: 'AIState') -> None:

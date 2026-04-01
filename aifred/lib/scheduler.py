@@ -120,7 +120,7 @@ class JobStore:
                 (name, schedule_type, schedule_expr, json.dumps(payload), max_tier, next_run),
             )
             conn.commit()
-            job_id = cursor.lastrowid
+            job_id = cursor.lastrowid or 0
         log_message(f"Scheduler: added job '{name}' (type={schedule_type}, next={next_run})")
         return self.get(job_id)  # type: ignore[return-value]
 
@@ -244,7 +244,7 @@ def _calculate_next_run(schedule_type: str, schedule_expr: str, after: str) -> s
         seconds = int(schedule_expr)
         base = datetime.fromisoformat(after)
         next_dt = base + __import__("datetime").timedelta(seconds=seconds)
-        return next_dt.strftime("%Y-%m-%dT%H:%M:%S")
+        return str(next_dt.strftime("%Y-%m-%dT%H:%M:%S"))
 
     if schedule_type == "cron":
         return _next_cron_run(schedule_expr, after)
@@ -262,12 +262,12 @@ def _next_cron_run(cron_expr: str, after: str) -> str | None:
         base = datetime.fromisoformat(after)
         cron = croniter(cron_expr, base)
         next_dt = cron.get_next(datetime)
-        return next_dt.strftime("%Y-%m-%dT%H:%M:%S")
+        return str(next_dt.strftime("%Y-%m-%dT%H:%M:%S"))
     except ImportError:
         logger.warning("croniter not installed — cron jobs will use 1h fallback interval")
         base = datetime.fromisoformat(after)
         next_dt = base + __import__("datetime").timedelta(hours=1)
-        return next_dt.strftime("%Y-%m-%dT%H:%M:%S")
+        return str(next_dt.strftime("%Y-%m-%dT%H:%M:%S"))
     except Exception as exc:
         logger.error("Invalid cron expression '%s': %s", cron_expr, exc)
         return None

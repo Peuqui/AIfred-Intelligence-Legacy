@@ -92,7 +92,7 @@ class WorkspacePlugin:
             executor=_list_files,
         ))
 
-        async def _read_file(filename: str, pages: str = "", line_start: int = 0, line_end: int = 0) -> str:
+        async def _read_file(filename: str, pages: str = "", line_start: int | str = 0, line_end: int | str = 0) -> str:
             """Read a file from data/documents/. PDFs support page selection, text files support line ranges."""
             file_path, error = _safe_resolve(filename)
             if error:
@@ -143,15 +143,17 @@ class WorkspacePlugin:
                         import chardet
                         raw = file_path.read_bytes()
                         detected = chardet.detect(raw)
-                        all_text = raw.decode(detected.get("encoding", "utf-8"), errors="replace")
+                        all_text = raw.decode(str(detected.get("encoding") or "utf-8"), errors="replace")
 
                     lines = all_text.split("\n")
                     total_lines = len(lines)
 
                     # Apply line range if specified
-                    if line_start > 0 or line_end > 0:
-                        start = max(0, line_start - 1)  # 1-based to 0-based
-                        end = line_end if line_end > 0 else total_lines
+                    ls = int(line_start)
+                    le = int(line_end)
+                    if ls > 0 or le > 0:
+                        start = max(0, ls - 1)  # 1-based to 0-based
+                        end = le if le > 0 else total_lines
                         text = "\n".join(lines[start:end])
                         range_info = f"lines {start + 1}-{min(end, total_lines)} of {total_lines}"
                     else:
@@ -551,7 +553,8 @@ class WorkspacePlugin:
                 count = col.count()
                 # Get sample metadata for context
                 sample = col.peek(limit=1)
-                meta_keys = list(sample.get("metadatas", [{}])[0].keys()) if sample.get("metadatas") and sample["metadatas"] else []
+                metadatas = sample.get("metadatas") if sample else None
+                meta_keys = list(metadatas[0].keys()) if metadatas and len(metadatas) > 0 else []  # type: ignore[index]
                 result.append({
                     "name": col.name,
                     "entries": count,

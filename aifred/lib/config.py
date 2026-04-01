@@ -917,7 +917,7 @@ def get_effective_model_from_settings(agent: str = "aifred") -> str:
         # Fall back to AIfred's model (other agents share the same LLM)
         base_id = saved.get("aifred_model", "")
     if not base_id:
-        return base_id
+        return str(base_id)
 
     # Speed mode
     speed_on = settings.get(f"{agent}_speed_mode", False)
@@ -944,7 +944,7 @@ def get_effective_model_from_settings(agent: str = "aifred") -> str:
             if tts_id in swap_cfg:
                 return tts_id
 
-    return base_id
+    return str(base_id)
 
 
 # Docker-Compose paths (for container start/stop)

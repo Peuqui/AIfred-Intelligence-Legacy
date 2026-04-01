@@ -203,7 +203,7 @@ def get_agent_emoji(agent_id: str) -> str:
     agents = load_agents_raw()
     agent = agents.get(agent_id)
     if agent:
-        return agent.get("emoji", "\U0001f916")
+        return str(agent.get("emoji", "\U0001f916"))
     return "\U0001f916"
 
 

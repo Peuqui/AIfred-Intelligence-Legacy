@@ -58,7 +58,7 @@ def read_and_clear_hub_notification() -> dict | None:
     if not path.exists():
         return None
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data: dict = json.loads(path.read_text(encoding="utf-8"))
         path.unlink()
         return data
     except (json.JSONDecodeError, OSError):
@@ -87,7 +87,7 @@ def resolve_user_name(channel: str, channel_id: str, sender: str) -> str:
     for user_name, channels in mappings.items():
         ids = channels.get(channel, [])
         if channel_id in ids or sender in ids:
-            return user_name
+            return str(user_name)
 
     return sender
 
@@ -316,7 +316,7 @@ async def _call_engine(
 
     if not model:
         log_message(f"Message Processor: no model configured for {agent}/{backend_type}", "error")
-        return ""
+        return "", {}
 
     # Load existing LLM history from session
     session = load_session(session_id)
@@ -483,4 +483,4 @@ def _is_auto_reply_enabled(channel: str) -> bool:
     from .settings import load_settings
     settings = load_settings() or {}
     channel_toggles = settings.get("channel_toggles", {})
-    return channel_toggles.get(channel, {}).get("auto_reply", False)
+    return bool(channel_toggles.get(channel, {}).get("auto_reply", False))

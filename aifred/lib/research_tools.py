@@ -315,7 +315,7 @@ async def _hub_web_search(queries: list[str]) -> str:
                 cache_time = _dtc.datetime.fromisoformat(cache_result['metadata']['timestamp'])
                 age_seconds = (_dtc.datetime.now() - cache_time).total_seconds()
                 debug(f"✅ Cache hit ({format_age(age_seconds)} ago, d={distance:.4f})")
-                return cache_result['answer']
+                return str(cache_result['answer'])
         except (ConnectionError, OSError, TimeoutError) as e:
             debug(f"⚠️ Cache check failed: {e}")
 
