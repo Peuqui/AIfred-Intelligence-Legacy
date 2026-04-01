@@ -92,27 +92,44 @@ def resolve_user_name(channel: str, channel_id: str, sender: str) -> str:
     return sender
 
 
-def detect_target_agent(text: str) -> str:
-    """Detect if a message is addressed to a specific agent.
+async def detect_target_agent_via_llm(text: str) -> tuple[str, str, str]:
+    """Detect target agent, intent and language via LLM — same pipeline as browser.
 
-    Checks if the message contains an agent name or display name.
-    Returns the agent ID or "aifred" as default.
+    Uses detect_query_intent_and_addressee() — single source of truth.
+
+    Returns:
+        (agent_id, intent, detected_language)
     """
-    from .agent_config import load_agents_raw
+    from .intent_detector import detect_query_intent_and_addressee
+    from .llm_client import LLMClient
+    from .settings import load_settings
 
-    text_lower = text.lower().strip()
+    settings = load_settings() or {}
+    backend_type = settings.get("backend_type", "llamacpp")
 
-    # Build keyword map from all registered agents (except aifred — he's the default)
-    agents = load_agents_raw()
-    for agent_id, data in agents.items():
-        if agent_id == "aifred" or agent_id == "vision":
-            continue
-        display_name = data.get("display_name", "").lower()
-        # Check agent_id and display_name anywhere in the text
-        if agent_id in text_lower or (display_name and display_name in text_lower):
-            return agent_id
+    # Resolve automatik model (same logic as browser)
+    backend_models = settings.get("backend_models", {}).get(backend_type, {})
+    automatik_model = backend_models.get("automatik_model", "") or backend_models.get("aifred_model", "")
 
-    return "aifred"
+    if not automatik_model:
+        log_message("Message Processor: no model for intent detection, defaulting to aifred")
+        return "aifred", "FAKTISCH", "de"
+
+    client = LLMClient(backend_type)
+
+    try:
+        intent, addressee, lang, _raw = await detect_query_intent_and_addressee(
+            user_query=text,
+            automatik_model=automatik_model,
+            llm_client=client,
+            automatik_num_ctx=None,
+        )
+        agent = addressee or "aifred"
+        log_message(f"🎯 Intent: {intent}, Addressee: {agent}, Lang: {lang.upper()}")
+        return agent, intent, lang
+    except Exception as e:
+        log_message(f"Message Processor: intent detection failed: {e}", "error")
+        return "aifred", "FAKTISCH", "de"
 
 
 async def process_inbound(message: InboundMessage) -> Optional[OutboundMessage]:
@@ -141,8 +158,9 @@ async def process_inbound(message: InboundMessage) -> Optional[OutboundMessage]:
         log_message(f"User mapping: {message.sender} -> {resolved_name}")
         message.sender = resolved_name
 
-    # 2. Detect target agent from message text
-    message.target_agent = detect_target_agent(message.text)
+    # 2. Detect target agent, intent and language via LLM (same as browser)
+    agent, intent, detected_lang = await detect_target_agent_via_llm(message.text)
+    message.target_agent = agent
 
     # 2. Find or create session via routing table
     route = routing_table.get_route(message.channel, message.channel_id)
@@ -227,6 +245,10 @@ async def process_inbound(message: InboundMessage) -> Optional[OutboundMessage]:
         # ── Phase 3b: Sanitize output for external channels ───
         from .security import sanitize_outbound
         outbound_text = sanitize_outbound(response_text)
+
+        # Prefix with agent name if not AIfred (so user knows who answered)
+        if message.target_agent != "aifred":
+            outbound_text = f"[{agent_display_name}]\n\n{outbound_text}"
 
         # ── Phase 4: Auto-reply if enabled ────────────────────
         reply_metadata = plugin.build_reply_metadata(message) if plugin else {}
