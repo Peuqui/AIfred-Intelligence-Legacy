@@ -135,7 +135,8 @@ async def call_llm(
         )
         if memory_ctx:
             system_prompt = f"{system_prompt}\n\n{memory_ctx}"
-            yield {"type": "debug", "message": f"🧠 Memory context injected for {agent_label}"}
+            mem_tok = estimate_tokens([{"content": memory_ctx}])
+            yield {"type": "debug", "message": f"🧠 Memory context injected ({mem_tok:,} tok)"}
         if memory_toolkit:
             yield {"type": "debug", "message": f"🔧 Toolkit: {[t.name for t in memory_toolkit.tools]}"}
 
@@ -145,12 +146,13 @@ async def call_llm(
     if rag_context:
         inject_rag_context(messages, rag_context)
         # Distinguish Memory from RAG in debug output
+        rag_tok = estimate_tokens([{"content": rag_context}])
         if external_toolkit:
             # Memory context (from prepare_agent_toolkit via Message Hub)
-            yield {"type": "debug", "message": f"🧠 Memory context injected ({len(rag_context)} chars)"}
+            yield {"type": "debug", "message": f"🧠 Memory context injected ({rag_tok:,} tok)"}
         else:
             # RAG context (from document store)
-            yield {"type": "debug", "message": f"💡 RAG context injected ({len(rag_context)} chars)"}
+            yield {"type": "debug", "message": f"💡 RAG context injected ({rag_tok:,} tok)"}
 
     # Inject Vision JSON context if available
     if vision_json_context:

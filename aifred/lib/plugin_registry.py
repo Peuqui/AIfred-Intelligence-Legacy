@@ -92,6 +92,14 @@ def all_channels() -> dict[str, BaseChannel]:
 _tools: Optional[list[ToolPlugin]] = None
 
 
+def get_tool_plugin(name: str) -> ToolPlugin | None:
+    """Get a tool plugin by name."""
+    for p in discover_tools():
+        if p.name == name:
+            return p
+    return None
+
+
 def discover_tools() -> list[ToolPlugin]:
     """Scan plugins/tools/ and return all ToolPlugin instances. Cached."""
     global _tools
@@ -165,11 +173,19 @@ def list_all_plugins() -> list[dict[str, str]]:
 
     def _display(stem: str) -> str:
         """Get display name from the loaded plugin."""
-        if _tools:
-            for p in _tools:
-                if p.name == stem:
-                    return p.display_name
+        for p in discover_tools():
+            if p.name == stem:
+                return p.display_name
         return stem.replace("_", " ").title()
+
+    def _has_credentials(stem: str) -> str:
+        """Check if a tool plugin has credential_fields."""
+        for p in discover_tools():
+            if p.name == stem:
+                fields = getattr(p, "credential_fields", None)
+                if fields:
+                    return "1"
+        return ""
 
     # Enabled channels (single files + packages)
     channels_dir = root / "channels"
@@ -177,11 +193,11 @@ def list_all_plugins() -> list[dict[str, str]]:
         for f in sorted(channels_dir.glob("*.py")):
             if f.name.startswith("_"):
                 continue
-            result.append({"name": f.stem, "display": _display(f.stem), "file": f.name, "type": "channel", "enabled": "1"})
+            result.append({"name": f.stem, "display": _display(f.stem), "file": f.name, "type": "channel", "enabled": "1", "has_credentials": ""})
         for d in sorted(channels_dir.iterdir()):
             if d.is_dir() and (d / "__init__.py").exists() and not d.name.startswith("_"):
                 name = d.name
-                result.append({"name": name, "display": _display(name), "file": d.name, "type": "channel", "enabled": "1"})
+                result.append({"name": name, "display": _display(name), "file": d.name, "type": "channel", "enabled": "1", "has_credentials": ""})
 
     # Enabled tools (single files + packages)
     tools_dir = root / "tools"
@@ -189,11 +205,11 @@ def list_all_plugins() -> list[dict[str, str]]:
         for f in sorted(tools_dir.glob("*.py")):
             if f.name.startswith("_"):
                 continue
-            result.append({"name": f.stem, "display": _display(f.stem), "file": f.name, "type": "tool", "enabled": "1"})
+            result.append({"name": f.stem, "display": _display(f.stem), "file": f.name, "type": "tool", "enabled": "1", "has_credentials": _has_credentials(f.stem)})
         for d in sorted(tools_dir.iterdir()):
             if d.is_dir() and (d / "__init__.py").exists() and not d.name.startswith("_"):
                 name = d.name
-                result.append({"name": name, "display": _display(name), "file": d.name, "type": "tool", "enabled": "1"})
+                result.append({"name": name, "display": _display(name), "file": d.name, "type": "tool", "enabled": "1", "has_credentials": _has_credentials(name)})
 
     # Disabled (both types — filename encodes origin via prefix)
     for f in sorted(disabled.glob("*.py")):
@@ -209,7 +225,7 @@ def list_all_plugins() -> list[dict[str, str]]:
         else:
             ptype = "tool"
             pname = f.stem
-        result.append({"name": pname, "display": _display(pname), "file": f.name, "type": ptype, "enabled": ""})
+        result.append({"name": pname, "display": _display(pname), "file": f.name, "type": ptype, "enabled": "", "has_credentials": ""})
 
     result.sort(key=lambda p: p["name"])
     return result

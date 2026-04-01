@@ -173,7 +173,8 @@ async def build_and_generate_response(
         )
         if memory_ctx:
             system_prompt = f"{system_prompt}\n\n{memory_ctx}"
-            yield {"type": "debug", "message": "🧠 Memory context injected for aifred"}
+            mem_tok = estimate_tokens([{"content": memory_ctx}])
+            yield {"type": "debug", "message": f"🧠 Memory context injected ({mem_tok:,} tok)"}
         if memory_toolkit:
             yield {"type": "debug", "message": f"🔧 Toolkit: {[t.name for t in memory_toolkit.tools]}"}
 

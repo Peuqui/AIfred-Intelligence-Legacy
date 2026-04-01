@@ -5,13 +5,23 @@ from typing import Any
 
 from ....lib.function_calling import Tool
 from ....lib.i18n import t
-from ....lib.plugin_base import PluginContext
+from ....lib.plugin_base import CredentialField, PluginContext
 
 
 @dataclass
 class EpimPlugin:
     name: str = "epim"
     display_name: str = "EPIM"
+
+    @property
+    def credential_fields(self) -> list[CredentialField]:
+        return [
+            CredentialField(
+                env_key="EPIM_DB_PATH",
+                label_key="epim_cred_db_path",
+                placeholder="/path/to/database.epim",
+            ),
+        ]
 
     def is_available(self) -> bool:
         from ....lib.config import EPIM_ENABLED

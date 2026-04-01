@@ -1082,8 +1082,9 @@ DOCUMENT_ALLOWED_EXTENSIONS = {".pdf", ".txt", ".md", ".csv", ".docx", ".xlsx", 
 # ============================================================
 # EPIM DATABASE CONFIGURATION
 # ============================================================
-EPIM_ENABLED = True
-EPIM_DB_PATH = DATA_DIR / "epim" / "Database" / "MP-AIfred.epim"
+_epim_db_str = os.environ.get("EPIM_DB_PATH", "")
+EPIM_ENABLED = bool(_epim_db_str)
+EPIM_DB_PATH = Path(_epim_db_str) if _epim_db_str else Path()
 EPIM_FB_LIB = PROJECT_ROOT / "lib" / "firebird25" / "libfbembed.so"
 EPIM_FB_DIR = PROJECT_ROOT / "lib" / "firebird25"
 

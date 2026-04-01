@@ -36,7 +36,7 @@ class SettingsMixin(rx.State, mixin=True):
 
     # ── Plugin Manager Modal ─────────────────────────────────────
     plugin_manager_open: bool = False
-    tool_plugins: list[dict[str, str]] = []  # [{"name": "epim", "file": "...", "enabled": "1"}, ...]
+    tool_plugin_toggles: dict[str, str] = {}  # {"epim": "1", "calculator": "1", ...}
     channel_allowlists: dict[str, str] = {}  # {"email": "user@mail.de, @family.de", "telegram": "123456"}
 
     # ── Audit Log Modal ──────────────────────────────────────────
@@ -537,17 +537,27 @@ class SettingsMixin(rx.State, mixin=True):
     # ================================================================
 
     def open_channel_credentials(self, channel_name: str) -> None:
-        """Open credentials modal for a channel, pre-filled with current .env values."""
-        from ..lib.plugin_registry import get_channel
+        """Open credentials modal for a channel or tool plugin, pre-filled with current .env values."""
+        from ..lib.plugin_base import CredentialField
+        from ..lib.plugin_registry import get_channel, get_tool_plugin
 
+        # Try channel first, then tool plugin
+        fields: list[CredentialField] = []
         plugin = get_channel(channel_name)
-        if not plugin:
+        if plugin:
+            fields = plugin.credential_fields
+        else:
+            tool = get_tool_plugin(channel_name)
+            if tool:
+                fields = getattr(tool, "credential_fields", [])
+
+        if not fields:
             return
 
         # Pre-fill current values from environment
         values: dict[str, str] = {}
         field_descriptors: list[dict[str, str]] = []
-        for field in plugin.credential_fields:
+        for field in fields:
             values[field.env_key] = os.environ.get(field.env_key, field.default)
             field_descriptors.append({
                 "env_key": field.env_key,
@@ -584,51 +594,73 @@ class SettingsMixin(rx.State, mixin=True):
         self.channel_cred_show_password = not self.channel_cred_show_password
 
     def save_channel_credentials(self) -> None:
-        """Write credentials to .env and update runtime config."""
+        """Write credentials to .env and update runtime config.
+
+        Works for both channel plugins and tool plugins.
+        """
         from dotenv import set_key
         from ..lib.config import PROJECT_ROOT
-        from ..lib.plugin_registry import get_channel
+        from ..lib.plugin_base import CredentialField
+        from ..lib.plugin_registry import get_channel, get_tool_plugin
 
-        channel_name = self.channel_credentials_editing
-        plugin = get_channel(channel_name)
-        if not plugin:
-            return
-
+        plugin_name = self.channel_credentials_editing
         env_path = str(PROJECT_ROOT / ".env")
 
-        # Write ENABLED flag
-        enabled_key = f"{channel_name.upper()}_ENABLED"
-        set_key(env_path, enabled_key, "true")
-        os.environ[enabled_key] = "true"
+        # Determine if this is a channel or tool plugin
+        channel = get_channel(plugin_name)
+        tool = get_tool_plugin(plugin_name) if not channel else None
+
+        fields: list[CredentialField] = []
+        display = plugin_name
+        if channel:
+            fields = channel.credential_fields
+            display = channel.display_name
+        elif tool:
+            fields = getattr(tool, "credential_fields", [])
+            display = tool.display_name
+
+        if not fields:
+            return
 
         # Write each credential to .env and os.environ
-        for field in plugin.credential_fields:
+        for field in fields:
             val = self.channel_credential_values.get(field.env_key, "")
             if val or not field.is_password:  # Don't overwrite password with empty
                 set_key(env_path, field.env_key, val)
                 os.environ[field.env_key] = val
 
-        # Let the plugin apply credentials to its runtime config
-        plugin.apply_credentials(self.channel_credential_values)
+        self.add_debug(f"🔧 {display} Credentials gespeichert")  # type: ignore[attr-defined, has-type]
 
-        display = plugin.display_name
-        self.add_debug(f"📨 {display} Credentials gespeichert")  # type: ignore[attr-defined, has-type]
+        # Save values before clearing state (needed for apply_credentials)
+        saved_values = dict(self.channel_credential_values)
 
         # Close modal
         self.channel_credentials_modal_open = False
         self.channel_credential_values = {}
         self.channel_credentials_editing = ""
 
-        # Auto-enable monitor after saving credentials
-        self._set_channel_toggle(channel_name, "monitor", True)
-        self._save_settings()
+        if tool:
+            # Tool plugin: update toggle to reflect new availability
+            toggles = dict(self.tool_plugin_toggles)
+            toggles[plugin_name] = "1" if tool.is_available() else ""
+            self.tool_plugin_toggles = toggles
 
-        # Start the worker
-        from ..lib.message_hub import message_hub
-        if not message_hub.is_running(channel_name):
-            message_hub.register(channel_name, plugin.listener_loop)
-            import asyncio
-            asyncio.create_task(message_hub.start_all())
+        if channel:
+            # Channel-specific: apply credentials, enable monitor, start worker
+            channel.apply_credentials(saved_values)
+
+            enabled_key = f"{plugin_name.upper()}_ENABLED"
+            set_key(env_path, enabled_key, "true")
+            os.environ[enabled_key] = "true"
+
+            self._set_channel_toggle(plugin_name, "monitor", True)
+            self._save_settings()
+
+            from ..lib.message_hub import message_hub
+            if not message_hub.is_running(plugin_name):
+                message_hub.register(plugin_name, channel.listener_loop)
+                import asyncio
+                asyncio.create_task(message_hub.start_all())
 
     # ================================================================
     # PLUGIN MANAGER MODAL
@@ -636,9 +668,13 @@ class SettingsMixin(rx.State, mixin=True):
 
     def open_plugin_manager(self) -> None:
         """Open plugin manager modal and refresh plugin lists + allowlists."""
-        from ..lib.plugin_registry import list_all_plugins
+        from ..lib.plugin_registry import discover_tools
         from ..lib.credential_broker import broker
-        self.tool_plugins = [p for p in list_all_plugins() if p["type"] == "tool"]
+        # Use plugin.name (not file stem) — must match the static UI rows
+        # Show as ON only if the plugin is actually available (credentials etc.)
+        self.tool_plugin_toggles = {
+            p.name: ("1" if p.is_available() else "") for p in discover_tools()
+        }
         # Load current allowlists for display
         self.channel_allowlists = {
             "email": broker.get("email", "allowed_senders") or "-",
@@ -652,41 +688,29 @@ class SettingsMixin(rx.State, mixin=True):
 
         Channel toggles apply immediately (running workers).
         Tool toggles apply on OK (file movement, batch).
+        Currently only handles disabling (enabled plugins are discovered at build-time).
         """
-        from ..lib.plugin_registry import list_all_plugins, enable_plugin, disable_plugin
+        from ..lib.plugin_registry import discover_tools, disable_plugin
 
-        fs_state = {p["name"]: p for p in list_all_plugins()}
+        # All discovered plugins are currently enabled on the filesystem
+        discovered = {p.name for p in discover_tools()}
 
-        for ui_plugin in self.tool_plugins:
-            name = ui_plugin["name"]
-            ptype = ui_plugin.get("type", "tool")
-            fs_plugin = fs_state.get(name)
-            if not fs_plugin:
-                continue
+        for name, ui_enabled_str in self.tool_plugin_toggles.items():
+            ui_enabled = bool(ui_enabled_str)
+            fs_enabled = name in discovered
 
-            ui_enabled = bool(ui_plugin["enabled"])
-            fs_enabled = bool(fs_plugin["enabled"])
-
-            if ui_enabled and not fs_enabled:
-                enable_plugin(name, ptype)
-                self.add_debug(f"🔌 {ui_plugin.get('display', name)} aktiviert")  # type: ignore[attr-defined, has-type]
-            elif not ui_enabled and fs_enabled:
-                disable_plugin(name, ptype)
-                self.add_debug(f"🔌 {ui_plugin.get('display', name)} deaktiviert")  # type: ignore[attr-defined, has-type]
+            if not ui_enabled and fs_enabled:
+                disable_plugin(name, "tool")
+                self.add_debug(f"🔌 {name} deaktiviert")  # type: ignore[attr-defined, has-type]
 
         self.plugin_manager_open = False
 
     def toggle_tool_plugin(self, plugin_name: str) -> None:
         """Toggle a tool plugin in UI state (applied on OK)."""
-        updated = []
-        for p in self.tool_plugins:
-            if p["name"] == plugin_name:
-                new_p = dict(p)
-                new_p["enabled"] = "" if p["enabled"] else "1"
-                updated.append(new_p)
-            else:
-                updated.append(p)
-        self.tool_plugins = updated
+        toggles = dict(self.tool_plugin_toggles)
+        current = toggles.get(plugin_name, "1")
+        toggles[plugin_name] = "" if current else "1"
+        self.tool_plugin_toggles = toggles
 
     # ================================================================
     # AUDIT LOG MODAL

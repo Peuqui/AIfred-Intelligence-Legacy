@@ -1053,38 +1053,54 @@ def _db_entry_row(entry: rx.Var) -> rx.Component:
 # PLUGINS VIEW (Channel & Tool Plugin Management)
 # ============================================================
 
-def _tool_plugin_row(plugin_info: rx.Var) -> rx.Component:
-    """Render a single tool plugin row with enable/disable toggle."""
-    return rx.hstack(
-        rx.icon("puzzle", size=14, color=rx.cond(plugin_info["enabled"], "#4CAF50", "#666")),
-        rx.text(
-            plugin_info["display"],
-            font_size="14px",
-            color=rx.cond(plugin_info["enabled"], "white", "#999"),
-        ),
-        rx.spacer(),
-        rx.switch(
-            checked=plugin_info["enabled"].to(bool),
-            on_change=AIState.toggle_tool_plugin(plugin_info["name"]),
-            size="1",
-        ),
-        rx.text(
-            rx.cond(plugin_info["enabled"], "ON", "OFF"),
-            font_size="11px",
-            color=rx.cond(plugin_info["enabled"], "#4CAF50", "#999"),
-            min_width="24px",
-        ),
-        spacing="2",
-        align="center",
-        width="100%",
-    )
-
-
 def _plugins_view() -> rx.Component:
     """Plugins tab: channel and tool plugin management."""
-    from ..lib.plugin_registry import all_channels
+    from ..lib.plugin_registry import all_channels, discover_tools
 
-    # Build channel rows at build time (static)
+    # ── Build tool plugin rows at build time (static, like channels) ──
+    tool_rows: list[rx.Component] = []
+    for plugin in discover_tools():
+        name = plugin.name
+        enabled_var = AIState.tool_plugin_toggles[name].to(str) == "1"
+        has_creds = bool(getattr(plugin, "credential_fields", None))
+
+        row_children: list[rx.Component] = [
+            rx.icon("puzzle", size=14, color=rx.cond(enabled_var, "#4CAF50", "#666")),
+            rx.text(plugin.display_name, font_size="14px", color=rx.cond(enabled_var, "white", "#999")),
+            rx.spacer(),
+        ]
+
+        if has_creds:
+            row_children.append(
+                rx.icon_button(
+                    rx.icon("settings", size=14),
+                    on_click=AIState.open_channel_credentials(name),
+                    size="1",
+                    variant="ghost",
+                    color_scheme="gray",
+                    cursor="pointer",
+                ),
+            )
+
+        row_children.extend([
+            rx.switch(
+                checked=enabled_var,
+                on_change=lambda _val, n=name: AIState.toggle_tool_plugin(n),
+                size="1",
+            ),
+            rx.text(
+                rx.cond(enabled_var, "ON", "OFF"),
+                font_size="11px",
+                color=rx.cond(enabled_var, "#4CAF50", "#999"),
+                min_width="24px",
+            ),
+        ])
+
+        tool_rows.append(
+            rx.hstack(*row_children, spacing="2", align="center", width="100%"),
+        )
+
+    # ── Build channel rows at build time (static) ──
     channel_rows: list[rx.Component] = []
     for name, plugin in all_channels().items():
         enabled_var = AIState.channel_toggles[name]["monitor"].to(bool)
@@ -1185,7 +1201,7 @@ def _plugins_view() -> rx.Component:
                 # Tool Plugins
                 rx.text(t("plugin_tools"), font_size="14px", font_weight="bold", color="#999"),
                 rx.vstack(
-                    rx.foreach(AIState.tool_plugins, _tool_plugin_row),
+                    *tool_rows,
                     spacing="2",
                     width="100%",
                 ),

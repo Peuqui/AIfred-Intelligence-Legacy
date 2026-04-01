@@ -720,9 +720,11 @@ async def _run_agent_direct_response(
             state=state if research_tools_enabled else None,
             session_id=state.session_id,
         )
+        mem_tok = 0
         if memory_ctx:
             system_prompt = f"{system_prompt}\n\n{memory_ctx}"
-            state.add_debug(f"🧠 Memory context injected for {agent_label}")
+            mem_tok = estimate_tokens([{"content": memory_ctx}])
+            state.add_debug(f"🧠 Memory context injected ({mem_tok:,} tok)")
         if toolkit:
             state.add_debug(f"🔧 Toolkit: {[t.name for t in toolkit.tools]} for {agent_label}")
         if not memory_enabled:
@@ -764,11 +766,30 @@ async def _run_agent_direct_response(
         else:
             agent_temp = state.temperature  # type: ignore[has-type]
 
-        # Token breakdown: System + History = Total / Limit
+        # Token breakdown: System + Memory + RAG + Research + History = Total / Limit
         sys_tok = estimate_tokens([{"content": system_prompt}], model_name=agent_model_id)
         hist_tok = estimate_tokens([m for m in messages if m["role"] != "system"], model_name=agent_model_id)
         total_tok = sys_tok + hist_tok
-        state.add_debug(f"📊 Prompt: System {format_number(sys_tok)} + History {format_number(hist_tok)} = {format_number(total_tok)} / {format_number(agent_num_ctx)} tok ({int(total_tok / agent_num_ctx * 100)}%)")
+
+        # Break down sys_tok into components (all appended to system_prompt)
+        doc_rag_tok = getattr(state, "_doc_rag_tokens", 0)
+        research_tok = estimate_tokens([{"content": research_context}]) if research_context else 0
+        base_sys_tok = sys_tok - mem_tok - research_tok
+        # doc_rag_tok is already included in mem_tok (appended to memory_ctx)
+        pure_mem_tok = mem_tok - doc_rag_tok
+
+        parts = [f"System {format_number(base_sys_tok)}"]
+        if pure_mem_tok:
+            parts.append(f"Memory {format_number(pure_mem_tok)}")
+        if doc_rag_tok:
+            parts.append(f"RAG {format_number(doc_rag_tok)}")
+        if research_tok:
+            parts.append(f"Research {format_number(research_tok)}")
+        parts.append(f"History {format_number(hist_tok)}")
+        state.add_debug(f"📊 Prompt: {' + '.join(parts)} = {format_number(total_tok)} / {format_number(agent_num_ctx)} tok ({int(total_tok / agent_num_ctx * 100)}%)")
+        # Clean up temporary state
+        if hasattr(state, "_doc_rag_tokens"):
+            del state._doc_rag_tokens
         state.add_debug(f"🌡️ Temperature: {format_number(agent_temp, 1)}")
 
         # Build LLM options — custom agents use AIfred's settings

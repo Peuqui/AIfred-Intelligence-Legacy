@@ -1149,9 +1149,11 @@ class AgentConfigMixin(rx.State, mixin=True):
                 self._load_db_entries()
         elif tab == "plugins":
             # Reuse logic from open_plugin_manager (without opening separate modal)
-            from ..lib.plugin_registry import list_all_plugins
             from ..lib.credential_broker import broker
-            self.tool_plugins = [p for p in list_all_plugins() if p["type"] == "tool"]
+            from ..lib.plugin_registry import discover_tools
+            self.tool_plugin_toggles = {
+                p.name: ("1" if p.is_available() else "") for p in discover_tools()
+            }
             self.channel_allowlists = {
                 "email": broker.get("email", "allowed_senders") or "-",
                 "telegram": broker.get("telegram", "allowed_users") or "-",

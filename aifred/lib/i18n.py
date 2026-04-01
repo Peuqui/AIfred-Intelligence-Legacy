@@ -158,6 +158,12 @@ class TranslationManager:
             "telegram_cred_bot_token": "Bot Token",
             "telegram_cred_allowed_users": "Erlaubte User-IDs",
             "telegram_cred_allowed_users_tooltip": "Kommagetrennte Telegram User-IDs.\nUser-ID herausfinden: @userinfobot in Telegram anschreiben.\nBeispiel: 123456789, 987654321\n* = alle erlaubt, leer = niemand erlaubt.\nErster Eintrag = Owner (bekommt erhoehte Rechte).",
+            # DeepL credential labels
+            "deepl_cred_api_key": "DeepL API Key",
+            "deepl_cred_api_key_tooltip": "API Key von deepl.com/pro#developer.\nFree Keys enden auf :fx (500.000 Zeichen/Monat kostenlos).",
+            # EPIM credential labels
+            "epim_cred_db_path": "Datenbank-Pfad",
+            "epim_cred_db_path_tooltip": "Vollstaendiger Pfad zur EPIM-Datenbankdatei (.epim).",
             "system_control": "🔄 System-Steuerung",
             "restart_ollama": "🔄 Ollama Neustart",
             "restart_vllm": "🔄 vLLM Neustart",
@@ -552,6 +558,12 @@ class TranslationManager:
             "telegram_cred_bot_token": "Bot Token",
             "telegram_cred_allowed_users": "Allowed User IDs",
             "telegram_cred_allowed_users_tooltip": "Comma-separated Telegram user IDs.\nFind your ID: message @userinfobot on Telegram.\nExample: 123456789, 987654321\n* = allow all, empty = allow none.\nFirst entry = owner (gets elevated permissions).",
+            # DeepL credential labels
+            "deepl_cred_api_key": "DeepL API Key",
+            "deepl_cred_api_key_tooltip": "API key from deepl.com/pro#developer.\nFree keys end with :fx (500,000 chars/month free).",
+            # EPIM credential labels
+            "epim_cred_db_path": "Database Path",
+            "epim_cred_db_path_tooltip": "Full path to the EPIM database file (.epim).",
             "system_control": "🔄 System Control",
             "restart_ollama": "🔄 Ollama Restart",
             "restart_vllm": "🔄 vLLM Restart",

@@ -8,7 +8,7 @@ from typing import Any
 
 from ...lib.function_calling import Tool
 from ...lib.security import TIER_READONLY
-from ...lib.plugin_base import PluginContext
+from ...lib.plugin_base import CredentialField, PluginContext
 
 
 # DeepL supported languages (subset of most common ones for description)
@@ -58,6 +58,17 @@ class TranslatorPlugin:
     name: str = "translator"
     display_name: str = "DeepL Translator"
 
+    @property
+    def credential_fields(self) -> list[CredentialField]:
+        return [
+            CredentialField(
+                env_key="DEEPL_API_KEY",
+                label_key="deepl_cred_api_key",
+                placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx:fx",
+                is_password=True,
+            ),
+        ]
+
     def is_available(self) -> bool:
         from ...lib.credential_broker import broker
         return broker.is_set("deepl", "api_key")
@@ -84,8 +95,8 @@ class TranslatorPlugin:
 
             log_message(f"🌐 translate: {len(text)} chars → {target_lang}")
 
-            payload: dict[str, str] = {
-                "text": text,
+            payload: dict[str, Any] = {
+                "text": [text],
                 "target_lang": target_lang,
             }
             if source_lang:
