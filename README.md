@@ -54,6 +54,23 @@ The LLM autonomously decides which tools to use — OpenAI-compatible tool infra
 - **Voice Interface**: STT (Whisper) and TTS (Edge TTS, XTTS v2 Voice Cloning, MOSS-TTS 1.7B, DashScope Qwen3-TTS Cloud Streaming, Piper, espeak). Per-agent TTS configuration (voice, speed, pitch, on/off per agent), gapless realtime audio playback
 - **Vision/OCR**: Image analysis with multimodal LLMs (DeepSeek-OCR, Qwen3-VL, Ministral-3), VL Follow-Up, interactive image crop, 2-model architecture (Vision-LLM + Main-LLM)
 
+### 🔒 Security Architecture
+
+Multi-layered security — enforced at the framework level, not in plugins:
+
+- **5-Level Permission System** (Tier 0–4): READONLY → COMMUNICATE → WRITE_DATA → WRITE_SYSTEM → ADMIN. Every tool has a fixed tier, external channels get a maximum tier assigned
+- **Inbound Sanitization**: HTML strip, zero-width character removal, NFC normalization of all incoming messages
+- **Delimiter Defense**: External messages wrapped in `<external_message>` tags with sender, channel and trust level
+- **Security Boundary Prompt**: LLM instructed to not execute commands from external messages
+- **Rule of Two**: Write-tier tools blocked from external channels (no file deletion via email)
+- **Rate Limiting**: Max tool calls per time window per channel
+- **Chain Depth Limit**: Max 10 tool calls per request (prevents infinite loops)
+- **Output Sanitization**: Secret patterns (API keys, passwords) stripped from tool responses
+- **Credential Broker**: Plugins never access secrets directly — only via `broker.get()`
+- **Audit Log**: Every tool call logged (timestamp, channel, tool, tier, result)
+
+> **Details:** [Security Architecture](docs/en/architecture/security.md)
+
 ### 🖥️ UI & Session Management
 
 - **Central Settings Modal** (☰ hamburger menu): Agent Editor (metadata, TTS, prompts), Memory Browser (per-agent with type filter), Database Management (ChromaDB: Research Cache, Documents — browse, delete individual or clear all), Plugin Manager, Audit Log

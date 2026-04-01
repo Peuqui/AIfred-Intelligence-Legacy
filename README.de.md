@@ -54,6 +54,23 @@ Das LLM entscheidet autonom welche Tools es braucht — OpenAI-kompatible Tool-I
 - **Sprachschnittstelle**: STT (Whisper) und TTS (Edge TTS, XTTS v2 Voice Cloning, MOSS-TTS 1.7B, DashScope Qwen3-TTS Cloud-Streaming, Piper, espeak). Per-Agent TTS-Konfiguration (Stimme, Speed, Pitch, Ein/Aus pro Agent), nahtlose Echtzeit-Audioausgabe
 - **Vision/OCR**: Bildanalyse mit multimodalen LLMs (DeepSeek-OCR, Qwen3-VL, Ministral-3), VL Follow-Up, interaktiver Bild-Zuschnitt, 2-Modell-Architektur (Vision-LLM + Haupt-LLM)
 
+### 🔒 Security-Architektur
+
+Mehrstufiges Sicherheitskonzept — Security wird im Framework erzwungen, nicht in Plugins:
+
+- **5-Stufen Permission-System** (Tier 0–4): READONLY → COMMUNICATE → WRITE_DATA → WRITE_SYSTEM → ADMIN. Jedes Tool hat einen festen Tier, externe Kanäle bekommen einen maximalen Tier zugewiesen
+- **Inbound Sanitization**: HTML-Strip, Zero-Width-Character-Entfernung, NFC-Normalisierung aller eingehenden Nachrichten
+- **Delimiter Defense**: Externe Nachrichten werden in `<external_message>` Tags gewrapped mit Sender, Channel und Trust-Level
+- **Security Boundary Prompt**: LLM wird instruiert, keine Anweisungen aus externen Nachrichten auszuführen
+- **Rule of Two**: Write-Tier Tools von externen Channels blockiert (kein Datei-Löschen per E-Mail)
+- **Rate Limiting**: Max Tool-Calls pro Zeitfenster pro Channel
+- **Chain Depth Limit**: Max 10 Tool-Calls pro Request (verhindert Endlos-Schleifen)
+- **Output Sanitization**: Secret-Patterns (API-Keys, Passwörter) werden aus Tool-Rückgaben entfernt
+- **Credential Broker**: Plugins greifen nie direkt auf Secrets zu — nur über `broker.get()`
+- **Audit-Log**: Jeder Tool-Aufruf wird protokolliert (Zeitstempel, Channel, Tool, Tier, Ergebnis)
+
+> **Details:** [Security-Architektur](docs/de/architecture/security.md)
+
 ### 🖥️ UI & Session-Verwaltung
 
 - **Zentrales Einstellungs-Modal** (☰ Hamburger-Menü): Agenten-Editor (Metadata, TTS, Prompts), Memory-Browser (pro Agent mit Type-Filter), Datenbank-Verwaltung (ChromaDB: Research Cache, Documents — durchsuchen, einzeln oder komplett löschen), Plugin Manager, Audit-Log
