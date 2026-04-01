@@ -105,8 +105,39 @@ def _editor_header() -> rx.Component:
                 ),
                 cursor="pointer",
             ),
+            rx.button(
+                rx.icon("puzzle", size=14),
+                t("tab_plugins"),
+                on_click=AIState.set_agent_editor_tab("plugins"),
+                size="2",
+                variant=rx.cond(
+                    AIState.agent_editor_mode == "plugins",
+                    "solid", "soft",
+                ),
+                color_scheme=rx.cond(
+                    AIState.agent_editor_mode == "plugins",
+                    "orange", "gray",
+                ),
+                cursor="pointer",
+            ),
+            rx.button(
+                rx.icon("shield-check", size=14),
+                t("tab_audit"),
+                on_click=AIState.set_agent_editor_tab("audit"),
+                size="2",
+                variant=rx.cond(
+                    AIState.agent_editor_mode == "audit",
+                    "solid", "soft",
+                ),
+                color_scheme=rx.cond(
+                    AIState.agent_editor_mode == "audit",
+                    "orange", "gray",
+                ),
+                cursor="pointer",
+            ),
             spacing="2",
             width="100%",
+            flex_wrap="wrap",
         ),
         spacing="3",
         width="100%",
@@ -584,13 +615,24 @@ def _config_view() -> rx.Component:
                     ),
                     rx.cond(
                         ~is_new,
-                        rx.button(
-                            t("agent_editor_reset"),
-                            on_click=AIState.reset_editor_prompt,
-                            variant="soft",
-                            color_scheme="gray",
-                            size="2",
-                            cursor="pointer",
+                        rx.cond(
+                            AIState.editor_reset_confirm,
+                            rx.button(
+                                t("agent_editor_really_delete"),
+                                on_click=AIState.confirm_reset_editor_prompt,
+                                variant="solid",
+                                color_scheme="red",
+                                size="2",
+                                cursor="pointer",
+                            ),
+                            rx.button(
+                                t("agent_editor_reset"),
+                                on_click=AIState.request_reset_editor_prompt,
+                                variant="soft",
+                                color_scheme="gray",
+                                size="2",
+                                cursor="pointer",
+                            ),
                         ),
                     ),
                     spacing="3",
@@ -993,6 +1035,220 @@ def _db_entry_row(entry: rx.Var) -> rx.Component:
 
 
 # ============================================================
+# PLUGINS VIEW (Channel & Tool Plugin Management)
+# ============================================================
+
+def _tool_plugin_row(plugin_info: rx.Var) -> rx.Component:
+    """Render a single tool plugin row with enable/disable toggle."""
+    return rx.hstack(
+        rx.icon("puzzle", size=14, color=rx.cond(plugin_info["enabled"], "#4CAF50", "#666")),
+        rx.text(
+            plugin_info["display_name"],
+            font_size="12px",
+            color=rx.cond(plugin_info["enabled"], "white", "#999"),
+        ),
+        rx.spacer(),
+        rx.switch(
+            checked=plugin_info["enabled"].to(bool),
+            on_change=AIState.toggle_tool_plugin(plugin_info["name"]),
+            size="1",
+        ),
+        rx.text(
+            rx.cond(plugin_info["enabled"], "ON", "OFF"),
+            font_size="11px",
+            color=rx.cond(plugin_info["enabled"], "#4CAF50", "#999"),
+            min_width="24px",
+        ),
+        spacing="2",
+        align="center",
+        width="100%",
+    )
+
+
+def _plugins_view() -> rx.Component:
+    """Plugins tab: channel and tool plugin management."""
+    from ..lib.plugin_registry import all_channels
+
+    # Build channel rows at build time (static)
+    channel_rows: list[rx.Component] = []
+    for name, plugin in all_channels().items():
+        enabled_var = AIState.channel_toggles[name]["monitor"].to(bool)
+
+        header = rx.hstack(
+            rx.icon(plugin.icon, size=14, color=rx.cond(enabled_var, "#4CAF50", "#666")),
+            rx.text(plugin.display_name, font_size="12px", color=rx.cond(enabled_var, "white", "#999")),
+            rx.spacer(),
+            rx.icon_button(
+                rx.icon("settings", size=14),
+                on_click=AIState.open_channel_credentials(name),
+                size="1",
+                variant="ghost",
+                color_scheme="gray",
+                cursor="pointer",
+            ),
+            rx.switch(
+                checked=enabled_var,
+                on_change=lambda val, ch=name: AIState.toggle_channel_monitor([ch, val]),
+                size="1",
+            ),
+            rx.text(
+                rx.cond(enabled_var, "ON", "OFF"),
+                font_size="11px",
+                color=rx.cond(enabled_var, "#4CAF50", "#999"),
+                min_width="24px",
+            ),
+            spacing="2",
+            align="center",
+            width="100%",
+        )
+
+        children: list[rx.Component] = [header]
+
+        if not plugin.always_reply:
+            monitor_var = AIState.channel_toggles[name]["listener"].to(bool)
+            auto_reply_var = AIState.channel_toggles[name]["auto_reply"].to(bool)
+
+            children.append(
+                rx.cond(
+                    enabled_var,
+                    rx.hstack(
+                        rx.box(width="14px"),
+                        rx.text("Monitor", font_size="11px", color="#999"),
+                        rx.spacer(),
+                        rx.switch(
+                            checked=monitor_var,
+                            on_change=lambda val, ch=name: AIState.toggle_channel_listener([ch, val]),
+                            size="1",
+                        ),
+                        rx.text(rx.cond(monitor_var, "ON", "OFF"), font_size="11px", color=rx.cond(monitor_var, "#4CAF50", "#999"), min_width="24px"),
+                        spacing="2", align="center", width="100%",
+                    ),
+                )
+            )
+            children.append(
+                rx.cond(
+                    enabled_var & monitor_var,
+                    rx.hstack(
+                        rx.box(width="14px"),
+                        rx.text(t("auto_reply"), font_size="11px", color="#999"),
+                        rx.spacer(),
+                        rx.switch(
+                            checked=auto_reply_var,
+                            on_change=lambda val, ch=name: AIState.toggle_channel_auto_reply([ch, val]),
+                            size="1",
+                        ),
+                        rx.text(rx.cond(auto_reply_var, "ON", "OFF"), font_size="11px", color=rx.cond(auto_reply_var, "#4CAF50", "#999"), min_width="24px"),
+                        spacing="2", align="center", width="100%",
+                    ),
+                )
+            )
+
+        # Allowlist
+        children.append(
+            rx.cond(
+                enabled_var,
+                rx.hstack(
+                    rx.box(width="14px"),
+                    rx.icon("shield", size=12, color="#666"),
+                    rx.text("Allowlist: ", font_size="10px", color="#666"),
+                    rx.text(AIState.channel_allowlists[name], font_size="10px", color="#888", overflow="hidden", text_overflow="ellipsis", white_space="nowrap", max_width="200px"),
+                    spacing="1", align="center", width="100%",
+                ),
+            )
+        )
+
+        channel_rows.append(rx.vstack(*children, spacing="1", width="100%"))
+
+    return rx.vstack(
+        _editor_header(),
+        rx.box(
+            rx.vstack(
+                # Channels
+                rx.text(t("plugin_channels"), font_size="12px", font_weight="bold", color="#999"),
+                rx.vstack(*channel_rows, spacing="2", width="100%"),
+                rx.divider(),
+                # Tool Plugins
+                rx.text(t("plugin_tools"), font_size="12px", font_weight="bold", color="#999"),
+                rx.vstack(
+                    rx.foreach(AIState.tool_plugins, _tool_plugin_row),
+                    spacing="2",
+                    width="100%",
+                ),
+                spacing="3",
+                width="100%",
+            ),
+            flex="1",
+            overflow_y="auto",
+            width="100%",
+        ),
+        spacing="3",
+        width="100%",
+        flex="1",
+        min_height="0",
+    )
+
+
+# ============================================================
+# AUDIT VIEW (Security Audit Log)
+# ============================================================
+
+def _audit_entry_row(entry: rx.Var) -> rx.Component:
+    """Render a single audit log entry."""
+    return rx.table.row(
+        rx.table.cell(rx.text(entry["timestamp"], font_size="11px"), white_space="nowrap"),
+        rx.table.cell(rx.text(entry["source"], font_size="11px")),
+        rx.table.cell(rx.text(entry["tool_name"], font_size="11px", font_weight="500")),
+        rx.table.cell(rx.text(entry["tool_tier"], font_size="11px")),
+        rx.table.cell(
+            rx.cond(
+                entry["success"] == "OK",
+                rx.text("OK", font_size="11px", color="green"),
+                rx.text("FAIL", font_size="11px", color="red"),
+            )
+        ),
+        rx.table.cell(rx.text(entry["duration"], font_size="11px")),
+    )
+
+
+def _audit_view() -> rx.Component:
+    """Audit tab: security audit log table."""
+    return rx.vstack(
+        _editor_header(),
+        rx.box(
+            rx.vstack(
+                rx.text(t("audit_log_subtitle"), font_size="11px", color="gray"),
+                rx.table.root(
+                    rx.table.header(
+                        rx.table.row(
+                            rx.table.column_header_cell(rx.text("Time", font_size="11px")),
+                            rx.table.column_header_cell(rx.text("Source", font_size="11px")),
+                            rx.table.column_header_cell(rx.text("Tool", font_size="11px")),
+                            rx.table.column_header_cell(rx.text("Tier", font_size="11px")),
+                            rx.table.column_header_cell(rx.text("Status", font_size="11px")),
+                            rx.table.column_header_cell(rx.text("Duration", font_size="11px")),
+                        ),
+                    ),
+                    rx.table.body(
+                        rx.foreach(AIState.audit_log_entries, _audit_entry_row),
+                    ),
+                    width="100%",
+                    size="1",
+                ),
+                spacing="3",
+                width="100%",
+            ),
+            flex="1",
+            overflow_y="auto",
+            width="100%",
+        ),
+        spacing="3",
+        width="100%",
+        flex="1",
+        min_height="0",
+    )
+
+
+# ============================================================
 # MAIN MODAL
 # ============================================================
 
@@ -1011,16 +1267,15 @@ def agent_editor_modal() -> rx.Component:
                 background_color="rgba(0, 0, 0, 0.85)",
                 on_click=AIState.close_editor_with_dirty_check,
             ),
-            # Modal content — switches between config, memory and database
+            # Modal content — switches between tabs
             rx.box(
-                rx.cond(
-                    AIState.agent_editor_mode == "database",
-                    _database_view(),
-                    rx.cond(
-                        AIState.agent_editor_mode == "memory",
-                        _memory_view(),
-                        _config_view(),
-                    ),
+                rx.match(
+                    AIState.agent_editor_mode,
+                    ("memory", _memory_view()),
+                    ("database", _database_view()),
+                    ("plugins", _plugins_view()),
+                    ("audit", _audit_view()),
+                    _config_view(),  # default
                 ),
                 padding="25px",
                 background_color="#1a1a1a",

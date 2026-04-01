@@ -1133,6 +1133,38 @@ class AgentConfigMixin(rx.State, mixin=True):
             self.db_clear_confirm = False
             if self.db_browser_collection:
                 self._load_db_entries()
+        elif tab == "plugins":
+            # Reuse logic from open_plugin_manager (without opening separate modal)
+            from ..lib.plugin_registry import list_all_plugins
+            from ..lib.credential_broker import broker
+            self.tool_plugins = [p for p in list_all_plugins() if p["type"] == "tool"]
+            self.channel_allowlists = {
+                "email": broker.get("email", "allowed_senders") or "-",
+                "telegram": broker.get("telegram", "allowed_users") or "-",
+                "discord": broker.get("discord", "channel_ids") or "-",
+            }
+        elif tab == "audit":
+            # Reuse logic from open_audit_log (without opening separate modal)
+            import sqlite3
+            from ..lib.config import SECURITY_AUDIT_DB
+            entries: list[dict] = []
+            if SECURITY_AUDIT_DB.exists():
+                conn = sqlite3.connect(str(SECURITY_AUDIT_DB), timeout=5)
+                conn.row_factory = sqlite3.Row
+                rows = conn.execute(
+                    "SELECT * FROM tool_audit ORDER BY timestamp DESC LIMIT 50"
+                ).fetchall()
+                conn.close()
+                for r in rows:
+                    entries.append({
+                        "timestamp": r["timestamp"] or "",
+                        "source": r["source"] or "",
+                        "tool_name": r["tool_name"] or "",
+                        "tool_tier": str(r["tool_tier"]),
+                        "success": "OK" if r["success"] else "FAIL",
+                        "duration": f"{r['duration_ms']:.0f}ms" if r["duration_ms"] else "",
+                    })
+            self.audit_log_entries = entries
 
     def select_editor_agent(self, label: str):
         """Select an agent from the dropdown by its display label."""
@@ -1159,6 +1191,7 @@ class AgentConfigMixin(rx.State, mixin=True):
         self.editor_delete_confirm = ""
         self.editor_emoji_picker_open = False
         self.editor_dirty = False
+        self.editor_reset_confirm = False
 
         # Load TTS settings for this agent — always start with XTTS
         self.editor_tts_engine = "xtts"  # type: ignore[attr-defined]
@@ -1378,14 +1411,28 @@ class AgentConfigMixin(rx.State, mixin=True):
         except Exception as e:
             return rx.toast.error(f"Error: {e}", duration=3000, position="top-center")
 
-    def reset_editor_prompt(self) -> None:
-        """Reset current prompt tab to the file on disk (discard unsaved changes)."""
+    # Reset confirm state
+    editor_reset_confirm: bool = False
+
+    def request_reset_editor_prompt(self) -> None:
+        """First click on reset — show confirmation."""
+        self.editor_reset_confirm = True
+
+    def confirm_reset_editor_prompt(self):
+        """Second click — actually reset prompt to file on disk."""
+        self.editor_reset_confirm = False
+        self.editor_dirty = False
         import json as _json
         self._load_editor_prompt(self.editor_prompt_tab)
         prompt_js = _json.dumps(self._editor_prompt_content)
         return rx.call_script(  # type: ignore[return-value]
             f"setTimeout(() => {{ const p = document.getElementById('editor-prompt-textarea'); if (p) p.value = {prompt_js}; }}, 50)",
         )
+
+    def reset_editor_prompt(self) -> None:
+        """Legacy — direct reset (kept for compatibility)."""
+        self.editor_reset_confirm = False
+        return self.confirm_reset_editor_prompt()
 
     def start_new_agent(self) -> None:
         """Switch editor to 'create new agent' mode (empty form)."""

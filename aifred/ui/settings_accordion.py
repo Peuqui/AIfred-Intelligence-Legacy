@@ -1245,43 +1245,6 @@ def settings_accordion() -> rx.Component:
                     width="100%",
                 ),
 
-                # ── Plugin Manager ───────────────────────────────
-                rx.divider(),
-                rx.hstack(
-                    rx.tooltip(
-                        rx.text(t("message_hub_heading"), font_weight="bold", font_size="12px", cursor="help"),
-                        content=t("message_hub_info"),
-                    ),
-                    rx.box(flex="1"),
-                    rx.icon_button(
-                        rx.icon("settings", size=14),
-                        on_click=AIState.open_plugin_manager,
-                        size="1",
-                        variant="ghost",
-                        color_scheme="gray",
-                        cursor="pointer",
-                    ),
-                    align="center",
-                    width="100%",
-                ),
-
-                # Audit Log Button
-                rx.divider(),
-                rx.hstack(
-                    rx.text("Audit Log", font_weight="bold", font_size="12px"),
-                    rx.box(flex="1"),
-                    rx.icon_button(
-                        rx.icon("shield-check", size=14),
-                        on_click=AIState.open_audit_log,
-                        size="1",
-                        variant="ghost",
-                        color_scheme="gray",
-                        cursor="pointer",
-                    ),
-                    align="center",
-                    width="100%",
-                ),
-
                 # Restart Buttons
                 rx.divider(),
                 rx.text(t("system_control"), font_weight="bold", font_size="12px"),
