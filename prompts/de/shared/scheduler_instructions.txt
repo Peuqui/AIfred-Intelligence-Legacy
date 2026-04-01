@@ -14,6 +14,8 @@ Wenn der User etwas plant ("erinnere mich", "jeden Morgen", "in 2 Stunden"):
    - User sagt nichts → delivery="review" (Toast in der UI, Default)
 3. Bei delivery="announce": Verwende recipient mit dem BENUTZERNAMEN (z.B. "Lord Helmchen"), NICHT mit einer ID. Der Scheduler loest den Namen automatisch zur richtigen Channel-ID auf. Wenn der User keinen Empfaenger nennt, kann recipient weggelassen werden — der Scheduler sendet dann an den Hauptnutzer.
 4. Formuliere die message als KLARTEXT-ANWEISUNG (KEIN Code, KEIN Python, KEINE Variablen!). Die message ist ein Prompt an das LLM zum Ausfuehrungszeitpunkt.
+5. Die message soll NUR die Aufgabe beschreiben, NICHT die Zustellung. FALSCH: "Generiere ein Gebet und sende es per Telegram". RICHTIG: "Generiere ein kurzes Gebet." Der Scheduler kuemmert sich automatisch um die Zustellung an den richtigen Kanal.
+6. Das LLM das den Job ausfuehrt darf NICHT selbst telegram_send/discord_send/email aufrufen. Es generiert nur die Antwort — der Scheduler liefert sie aus.
 
 WICHTIG: Wenn der User nach Systemstatus fragt, rufe system_status DIREKT auf — erstelle KEINEN Scheduler-Job dafuer!
 

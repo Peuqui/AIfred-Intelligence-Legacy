@@ -356,6 +356,13 @@ async def _execute_job(job: Job) -> None:
     if not response_text:
         raise RuntimeError(f"Engine returned no response for job '{job.name}'")
 
+    # Add agent identification tag (except for aifred who has none)
+    if agent != "aifred":
+        from .agent_config import get_agent_config
+        agent_cfg = get_agent_config(agent)
+        if agent_cfg:
+            response_text = f"— {agent_cfg.display_name} —\n\n{response_text}"
+
     # Store result in session debug log
     from .debug_bus import debug, session_scope
     with session_scope(session_id):
