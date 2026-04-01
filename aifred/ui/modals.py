@@ -743,155 +743,319 @@ def image_lightbox_modal() -> rx.Component:
     )
 
 
-def _document_row(doc: dict) -> rx.Component:
-    """Single row in the document manager list."""
+def _doc_file_row(item: rx.Var) -> rx.Component:
+    """Single row in the document file explorer."""
+    name = item["name"].to(str)
+    is_folder = item["type"].to(str) == "folder"
+    is_indexed = item["indexed"].to(bool)
+    chunks = item["chunks"].to(int)
+
     return rx.hstack(
-        rx.icon("file-text", size=16, color="#d29922"),
-        rx.vstack(
+        # Icon: folder or file with index indicator
+        rx.cond(
+            is_folder,
+            rx.icon("folder", size=16, color="#d29922", cursor="pointer",
+                     on_click=AIState.doc_navigate_folder(name)),
+            rx.icon("file-text", size=16, color=rx.cond(is_indexed, "#4CAF50", "#888")),
+        ),
+        # Name — inline rename input or clickable text
+        rx.cond(
+            AIState.doc_rename_target == name,
+            # Rename mode: input field
+            rx.hstack(
+                rx.input(
+                    value=AIState.doc_rename_value,
+                    on_change=AIState.doc_set_rename_value,
+                    on_key_down=lambda key: rx.cond(
+                        key == "Enter",
+                        AIState.doc_confirm_rename(),
+                        rx.cond(key == "Escape", AIState.doc_cancel_rename(), rx.noop()),  # type: ignore[arg-type]
+                    ),
+                    size="1", font_size="12px", width="150px",
+                    auto_focus=True,
+                ),
+                rx.icon_button(
+                    rx.icon("check", size=12), size="1",
+                    variant="ghost", color_scheme="green",
+                    on_click=AIState.doc_confirm_rename, cursor="pointer",
+                ),
+                rx.icon_button(
+                    rx.icon("x", size=12), size="1",
+                    variant="ghost", color_scheme="gray",
+                    on_click=AIState.doc_cancel_rename, cursor="pointer",
+                ),
+                spacing="1", align="center",
+            ),
+            # Normal mode: clickable name
             rx.text(
-                doc["filename"],
-                font_weight="bold",
+                name,
                 font_size="12px",
-                color="white",
+                color=rx.cond(is_folder, "#d29922", "white"),
                 cursor="pointer",
-                on_click=AIState.preview_document(doc["filename"]),
                 _hover={"text_decoration": "underline"},
+                word_break="break-all",
+                min_width="0",
+                on_click=rx.cond(
+                    is_folder,
+                    AIState.doc_navigate_folder(name),
+                    AIState.preview_document(name),
+                ),
             ),
-            rx.text(
-                doc["upload_date"],
-                font_size="10px",
-                color="#888",
-            ),
-            spacing="0",
         ),
         rx.spacer(),
-        # Fixed-width columns for chunks + action icons
-        rx.hstack(
-            rx.text(
-                doc["total_chunks"].to(str),
-                font_size="10px",
-                color="#aaa",
-                min_width="20px",
-                text_align="right",
+        # Size (files only)
+        rx.cond(
+            ~is_folder,
+            rx.text(item["size"].to(str), font_size="10px", color="#666", min_width="60px"),
+        ),
+        # Index status badge
+        rx.cond(
+            ~is_folder,
+            rx.cond(
+                is_indexed,
+                rx.text(chunks.to(str) + " chunks", font_size="10px", color="#4CAF50", min_width="60px"),
+                rx.text("—", font_size="10px", color="#555", min_width="60px"),
             ),
-            rx.icon_button(
-                rx.icon("eye", size=16),
-                size="1",
-                variant="ghost",
-                color_scheme="blue",
-                on_click=AIState.preview_document(doc["filename"]),
-                cursor="pointer",
-            ),
-            rx.link(
-                rx.icon_button(
-                    rx.icon("download", size=16),
-                    size="1",
-                    variant="ghost",
-                    color_scheme="green",
-                    cursor="pointer",
+        ),
+        # Actions (files only)
+        rx.cond(
+            ~is_folder,
+            rx.hstack(
+                # Index / Deindex toggle
+                rx.cond(
+                    is_indexed,
+                    rx.tooltip(
+                        rx.icon_button(
+                            rx.icon("database-zap", size=14),
+                            size="1", variant="ghost", color_scheme="orange",
+                            on_click=AIState.doc_deindex_file(name), cursor="pointer",
+                        ),
+                        content=rx.cond(AIState.ui_language == "de", "Deindexieren", "Deindex"),
+                    ),
+                    rx.tooltip(
+                        rx.icon_button(
+                            rx.icon("database", size=14),
+                            size="1", variant="ghost", color_scheme="gray",
+                            on_click=AIState.doc_index_file(name), cursor="pointer",
+                        ),
+                        content=rx.cond(AIState.ui_language == "de", "Indexieren", "Index"),
+                    ),
                 ),
-                href="/_upload/documents/" + doc["filename"].to(str),
-                download=doc["filename"],
-                is_external=True,
+                # Rename
+                rx.icon_button(
+                    rx.icon("pencil", size=14),
+                    size="1", variant="ghost", color_scheme="yellow",
+                    on_click=AIState.doc_start_rename(name), cursor="pointer",
+                ),
+                # Preview
+                rx.icon_button(
+                    rx.icon("eye", size=14),
+                    size="1", variant="ghost", color_scheme="blue",
+                    on_click=AIState.preview_document(name), cursor="pointer",
+                ),
+                # Delete
+                rx.icon_button(
+                    rx.icon("trash-2", size=14),
+                    size="1", variant="ghost", color_scheme="red",
+                    on_click=AIState.doc_open_delete_dialog(name), cursor="pointer",
+                ),
+                spacing="0",
+                align="center",
             ),
-            rx.icon_button(
-                rx.icon("trash-2", size=16),
-                size="1",
-                variant="ghost",
-                color_scheme="red",
-                on_click=AIState.delete_uploaded_document(doc["filename"]),
-                cursor="pointer",
+        ),
+        # Folder actions: rename + delete
+        rx.cond(
+            is_folder,
+            rx.hstack(
+                rx.icon_button(
+                    rx.icon("pencil", size=14),
+                    size="1", variant="ghost", color_scheme="yellow",
+                    on_click=AIState.doc_start_rename(name), cursor="pointer",
+                ),
+                rx.icon_button(
+                    rx.icon("folder-minus", size=14),
+                    size="1", variant="ghost", color_scheme="red",
+                    on_click=AIState.doc_delete_empty_folder(name), cursor="pointer",
+                ),
+                spacing="0", align="center",
             ),
-            spacing="1",
-            align="center",
-            flex_shrink="0",
         ),
         width="100%",
-        padding="6px 8px",
+        padding="5px 8px",
         align="center",
         border_bottom="1px solid #2a2a2a",
         _hover={"background_color": "rgba(255, 255, 255, 0.05)"},
     )
 
 
+def _doc_delete_dialog() -> rx.Component:
+    """Delete confirmation dialog with disk/index checkboxes."""
+    return rx.cond(
+        AIState.doc_delete_target != "",
+        rx.box(
+            rx.vstack(
+                rx.text(
+                    t("doc_delete_confirm_title"),
+                    font_weight="bold", font_size="14px", color="white",
+                ),
+                rx.text(
+                    AIState.doc_delete_target,
+                    font_size="12px", color="#d29922", font_weight="bold",
+                ),
+                rx.vstack(
+                    rx.hstack(
+                        rx.checkbox(
+                            t("doc_delete_from_disk"),
+                            checked=AIState.doc_delete_from_disk,
+                            on_change=AIState.doc_toggle_delete_disk,
+                            size="1",
+                        ),
+                        spacing="2", align="center",
+                    ),
+                    rx.hstack(
+                        rx.checkbox(
+                            t("doc_delete_from_index"),
+                            checked=AIState.doc_delete_from_index,
+                            on_change=AIState.doc_toggle_delete_index,
+                            size="1",
+                        ),
+                        spacing="2", align="center",
+                    ),
+                    spacing="2", width="100%",
+                ),
+                rx.hstack(
+                    rx.button(
+                        rx.cond(AIState.ui_language == "de", "Abbrechen", "Cancel"),
+                        on_click=AIState.doc_close_delete_dialog,
+                        variant="soft", color_scheme="gray", size="1", flex="1",
+                    ),
+                    rx.button(
+                        rx.cond(AIState.ui_language == "de", "Löschen", "Delete"),
+                        on_click=AIState.doc_confirm_delete,
+                        variant="solid", color_scheme="red", size="1", flex="1",
+                    ),
+                    spacing="2", width="100%",
+                ),
+                spacing="3",
+                padding="16px",
+                background="#2a1a1a",
+                border_radius="8px",
+                border="1px solid #c0392b",
+                width="100%",
+            ),
+        ),
+    )
+
+
 def document_manager_modal() -> rx.Component:
-    """Modal for managing uploaded documents."""
+    """File explorer modal for document management."""
     return rx.cond(
         AIState.document_manager_open,
         rx.box(
             # Backdrop
             rx.box(
-                position="absolute",
-                top="0",
-                left="0",
-                width="100%",
-                height="100%",
+                position="absolute", top="0", left="0",
+                width="100%", height="100%",
                 background_color="#000000",
                 on_click=AIState.close_document_manager,
             ),
 
-            # Modal Content — two-column layout
+            # Modal Content
             rx.vstack(
                 # Header
                 rx.hstack(
-                    rx.icon("file-text", size=24, color="#d29922"),
-                    rx.text(
-                        t("doc_manager_title"),
-                        color="white",
-                        font_weight="bold",
-                        font_size="18px",
-                    ),
+                    rx.icon("folder-open", size=24, color="#d29922"),
+                    rx.text(t("doc_manager_title"), color="white",
+                            font_weight="bold", font_size="18px"),
                     rx.spacer(),
-                    # Close button in header
                     rx.icon_button(
-                        rx.icon("x", size=18),
-                        size="2",
-                        variant="ghost",
-                        color_scheme="gray",
-                        on_click=AIState.close_document_manager,
-                        cursor="pointer",
+                        rx.icon("x", size=18), size="2",
+                        variant="ghost", color_scheme="gray",
+                        on_click=AIState.close_document_manager, cursor="pointer",
                     ),
-                    width="100%",
-                    align="center",
+                    width="100%", align="center",
                 ),
 
-                # Two-column (desktop) / stacked (mobile): list | preview
-                rx.flex(
-                    # Left: Document list
-                    rx.vstack(
-                        rx.cond(
-                            AIState.uploaded_documents.length() > 0,
-                            rx.vstack(
-                                rx.foreach(
-                                    AIState.uploaded_documents,
-                                    _document_row,
-                                ),
-                                spacing="2",
-                                width="100%",
+                # Breadcrumb navigation
+                rx.hstack(
+                    rx.icon_button(
+                        rx.icon("home", size=14), size="1",
+                        variant="ghost", color_scheme="yellow",
+                        on_click=AIState.doc_navigate_root, cursor="pointer",
+                    ),
+                    rx.cond(
+                        AIState.doc_current_folder != "",
+                        rx.hstack(
+                            rx.icon_button(
+                                rx.icon("arrow-left", size=14), size="1",
+                                variant="ghost", color_scheme="gray",
+                                on_click=AIState.doc_navigate_up, cursor="pointer",
                             ),
                             rx.text(
-                                t("doc_manager_empty"),
-                                color="#888",
-                                font_size="14px",
-                                padding="20px 0",
+                                "/ " + AIState.doc_current_folder,
+                                font_size="12px", color="#888",
+                            ),
+                            spacing="1", align="center",
+                        ),
+                    ),
+                    spacing="1", align="center", width="100%",
+                ),
+
+                # Two-column layout: file list | preview
+                rx.flex(
+                    # Left: File list
+                    rx.vstack(
+                        # Upload drop zone
+                        rx.upload(
+                            rx.hstack(
+                                rx.icon("upload", size=14, color="#888"),
+                                rx.text(
+                                    rx.cond(AIState.ui_language == "de",
+                                            "Dateien hierher ziehen", "Drop files here"),
+                                    font_size="11px", color="#888",
+                                ),
+                                spacing="2", align="center", justify="center",
+                                width="100%", padding="8px",
+                                border="1px dashed #444", border_radius="6px",
+                                _hover={"border_color": "#d29922", "color": "#d29922"},
+                            ),
+                            id="doc-explorer-upload",
+                            on_drop=AIState.handle_document_upload,
+                            multiple=True,
+                            border="none", padding="0", width="100%",
+                        ),
+
+                        # File listing
+                        rx.cond(
+                            AIState.doc_file_list.length() > 0,
+                            rx.vstack(
+                                rx.foreach(AIState.doc_file_list, _doc_file_row),
+                                spacing="0", width="100%",
+                            ),
+                            rx.text(
+                                rx.cond(AIState.ui_language == "de",
+                                        "Leerer Ordner", "Empty folder"),
+                                color="#666", font_size="13px", padding="20px 0",
                             ),
                         ),
+
+                        # Delete confirmation dialog
+                        _doc_delete_dialog(),
+
                         # Status message
                         rx.cond(
                             AIState.document_upload_status != "",
-                            rx.text(
-                                AIState.document_upload_status,
-                                font_size="12px",
-                                color="#aaa",
-                            ),
+                            rx.text(AIState.document_upload_status,
+                                    font_size="12px", color="#aaa"),
                         ),
-                        flex=["1 1 100%", "1 1 100%", "0 0 35%"],
+
+                        flex=["1 1 100%", "1 1 100%", "0 0 45%"],
                         max_height=["40vh", "40vh", "70vh"],
                         overflow_y="auto",
+                        overflow_x="hidden",
                         padding_right=["0", "0", "15px"],
-                        padding_bottom=["10px", "10px", "0"],
                         border_right=["none", "none", "1px solid #333"],
-                        border_bottom=["1px solid #333", "1px solid #333", "none"],
+                        spacing="2",
                     ),
 
                     # Right: Preview
@@ -901,82 +1065,53 @@ def document_manager_modal() -> rx.Component:
                             rx.vstack(
                                 rx.hstack(
                                     rx.icon("eye", size=16, color="#58a6ff"),
-                                    rx.text(
-                                        AIState.document_preview_filename,
-                                        color="#58a6ff",
-                                        font_weight="bold",
-                                        font_size="14px",
-                                    ),
+                                    rx.text(AIState.document_preview_filename,
+                                            color="#58a6ff", font_weight="bold", font_size="14px"),
                                     rx.spacer(),
                                     rx.icon_button(
-                                        rx.icon("x", size=14),
-                                        size="1",
-                                        variant="ghost",
-                                        color_scheme="gray",
-                                        on_click=AIState.close_document_preview,
-                                        cursor="pointer",
+                                        rx.icon("x", size=14), size="1",
+                                        variant="ghost", color_scheme="gray",
+                                        on_click=AIState.close_document_preview, cursor="pointer",
                                     ),
-                                    width="100%",
-                                    align="center",
+                                    width="100%", align="center",
                                 ),
                                 rx.box(
-                                    rx.text(
-                                        AIState.document_preview_content,
-                                        white_space="pre-wrap",
-                                        font_size="12px",
-                                        color="#ccc",
-                                        font_family="monospace",
-                                    ),
-                                    max_height="65vh",
-                                    overflow_y="auto",
-                                    width="100%",
-                                    padding="10px",
-                                    background_color="rgba(0, 0, 0, 0.3)",
-                                    border_radius="6px",
-                                    border="1px solid #333",
+                                    rx.text(AIState.document_preview_content,
+                                            white_space="pre-wrap", font_size="12px",
+                                            color="#ccc", font_family="monospace"),
+                                    max_height="65vh", overflow_y="auto", width="100%",
+                                    padding="10px", background_color="rgba(0, 0, 0, 0.3)",
+                                    border_radius="6px", border="1px solid #333",
                                 ),
-                                spacing="2",
-                                width="100%",
+                                spacing="2", width="100%",
                             ),
-                            # Empty preview state
                             rx.vstack(
                                 rx.icon("eye-off", size=32, color="#444"),
                                 rx.text(
-                                    rx.cond(
-                                        AIState.ui_language == "de",
-                                        "Klicke auf ein Dokument um es anzuzeigen",
-                                        "Click a document to preview it",
-                                    ),
-                                    color="#666",
-                                    font_size="13px",
+                                    rx.cond(AIState.ui_language == "de",
+                                            "Klicke auf eine Datei", "Click a file to preview"),
+                                    color="#666", font_size="13px",
                                 ),
-                                align="center",
-                                justify="center",
-                                height="100%",
-                                spacing="3",
+                                align="center", justify="center", height="100%", spacing="3",
                             ),
                         ),
-                        flex=["1 1 100%", "1 1 100%", "0 0 65%"],
+                        flex=["1 1 100%", "1 1 100%", "0 0 55%"],
                         max_height=["40vh", "40vh", "70vh"],
                         overflow_y="auto",
                         padding_left=["0", "0", "15px"],
-                        padding_top=["10px", "10px", "0"],
                     ),
 
-                    width="100%",
-                    align="start",
-                    gap="0",
+                    width="100%", align="start", gap="0",
                     direction=rx.breakpoints(initial="column", md="row"),
                 ),
 
-                spacing="4",
-                align="center",
+                spacing="3",
                 padding="25px",
                 background_color="#1a1a1a",
                 border_radius="12px",
+                width=["95vw", "95vw", "1100px"],
+                height=["90vh", "90vh", "700px"],
                 max_width="95vw",
-                width=["95vw", "95vw", "1024px"],
-                height=["90vh", "90vh", "1024px"],
                 max_height="90vh",
                 overflow_y="hidden",
                 position="relative",
@@ -984,16 +1119,9 @@ def document_manager_modal() -> rx.Component:
                 color="white",
             ),
 
-            # Fullscreen container
-            position="fixed",
-            top="0",
-            left="0",
-            width="100vw",
-            height="100vh",
-            z_index="1000",
-            display="flex",
-            justify_content="center",
-            align_items="center",
+            position="fixed", top="0", left="0",
+            width="100vw", height="100vh", z_index="1000",
+            display="flex", justify_content="center", align_items="center",
         ),
     )
 

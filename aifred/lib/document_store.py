@@ -304,7 +304,7 @@ class DocumentStore:
 
         return list(docs.values())
 
-    async def delete_document(self, filename: str) -> int:
+    async def delete_document(self, filename: str, delete_file: bool = True) -> int:
         """Delete all chunks for a document. Returns number of deleted chunks."""
         all_data = self._collection.get(
             where={"filename": filename},
@@ -315,10 +315,11 @@ class DocumentStore:
         count = len(all_data["ids"])
         self._collection.delete(ids=all_data["ids"])
 
-        # Delete file from disk if it exists
-        file_path = DOCUMENTS_DIR / filename
-        if file_path.exists():
-            file_path.unlink()
+        # Delete file from disk if requested
+        if delete_file:
+            file_path = DOCUMENTS_DIR / filename
+            if file_path.exists():
+                file_path.unlink()
 
         log_message(f"🗑️ Deleted {filename}: {count} chunks")
         return count

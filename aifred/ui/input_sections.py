@@ -195,54 +195,11 @@ def image_upload_section() -> rx.Component:
                 flex=["1 1 0%", "1 1 0%", "0 0 auto"],  # Mobile: 1x share, Desktop: auto
             ),
 
-            # Document Upload Button
-            rx.upload(
-                rx.tooltip(
-                    rx.button(
-                        rx.icon("file-text", size=16),
-                        rx.text(t("upload_document"), font_size="14px", display=["none", "none", "inline"]),
-                        size="2",
-                        variant="outline",
-                        color_scheme="yellow",
-                        width="100%",
-                        disabled=AIState.is_generating | AIState.is_uploading_image | AIState.is_uploading_document,
-                        style={
-                            "background": "rgba(100, 70, 0, 0.4)",
-                            "color": "#d29922",
-                            "border_color": "#d29922",
-                            "&:hover:not([disabled])": {
-                                "background": "rgba(130, 90, 0, 0.6) !important",
-                            },
-                            "&[disabled]": {"opacity": "0.45"},
-                        },
-                    ),
-                    content=t("doc_hint"),
-                ),
-                id="document-upload",
-                accept={
-                    "application/pdf": [".pdf"],
-                    "text/plain": [".txt", ".md"],
-                    "text/csv": [".csv"],
-                    "text/markdown": [".md"],
-                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": [".docx"],
-                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx"],
-                    "application/vnd.openxmlformats-officedocument.presentationml.presentation": [".pptx"],
-                    "application/vnd.oasis.opendocument.text": [".odt"],
-                    "application/vnd.oasis.opendocument.spreadsheet": [".ods"],
-                    "application/vnd.oasis.opendocument.presentation": [".odp"],
-                },
-                max_files=5,
-                on_drop=AIState.handle_document_upload,
-                multiple=True,
-                border="none",
-                padding="0",
-                flex=["1 1 0%", "1 1 0%", "0 0 auto"],
-            ),
-
-            # Document Manager Button (folder icon, opens modal)
+            # Document Manager Button (click = open modal, drop = upload)
             rx.tooltip(
-                rx.icon_button(
-                    rx.icon("folder-open", size=16),
+                rx.button(
+                    rx.icon("file-text", size=16),
+                    rx.text(t("upload_document"), font_size="14px", display=["none", "none", "inline"]),
                     size="2",
                     variant="outline",
                     color_scheme="yellow",
@@ -255,11 +212,10 @@ def image_upload_section() -> rx.Component:
                         "&:hover:not([disabled])": {
                             "background": "rgba(130, 90, 0, 0.6) !important",
                         },
-                        "&[disabled]": {"opacity": "0.45", "pointer_events": "none"},
-                        "&:disabled": {"opacity": "0.45", "pointer_events": "none"},
+                        "&[disabled]": {"opacity": "0.45"},
                     },
                 ),
-                content=t("doc_manager_title"),
+                content=t("doc_hint"),
             ),
 
             # Audio File Upload Button
