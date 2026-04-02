@@ -20,7 +20,8 @@
         "personality": true,
         "reasoning": false,
         "thinking": true
-      }
+      },
+      "tools": null
     },
     "sokrates": {
       "display_name": "Sokrates",
@@ -41,7 +42,8 @@
         "personality": true,
         "reasoning": false,
         "thinking": true
-      }
+      },
+      "tools": null
     },
     "salomo": {
       "display_name": "Salomo",
@@ -62,7 +64,8 @@
         "personality": true,
         "reasoning": false,
         "thinking": true
-      }
+      },
+      "tools": null
     },
     "vision": {
       "display_name": "Vision",

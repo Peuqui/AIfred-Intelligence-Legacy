@@ -548,7 +548,7 @@ class TTSConfigMixin(rx.State, mixin=True):
             updated = dict(self.tts_agent_voices)
             updated[agent_id] = dict(self._editor_tts_settings)
             self.tts_agent_voices = updated
-            self._save_settings()  # type: ignore[attr-defined]
+            self._save_agent_voices_for_engine(engine)
             return
 
         # Otherwise save to per-engine settings in settings.json

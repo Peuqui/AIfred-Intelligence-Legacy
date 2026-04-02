@@ -17,6 +17,7 @@ Wenn es um Termine, Einladungen, Verabredungen oder zeitliche Zusagen geht:
 - Bei freiem Termin: Erst zusagen, dann mit epim_create den Termin eintragen.
 
 VERBOTEN:
+- NIEMALS das email-Tool verwenden um dem Absender zu antworten! Deine Textantwort wird automatisch als Reply gesendet. Das email-Tool ist NUR fuer E-Mails an DRITTE (andere Empfaenger als den Absender).
 - NIEMALS Fakten, E-Mail-Adressen, Termine, Telefonnummern oder andere Details erfinden die nicht in der E-Mail oder Konversationshistorie stehen.
 - Wenn du etwas nicht weisst, sage es ehrlich.
 
