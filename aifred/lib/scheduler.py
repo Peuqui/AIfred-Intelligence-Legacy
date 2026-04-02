@@ -420,6 +420,12 @@ def _resolve_recipient(channel: str, recipient: str) -> str:
 
     for user_name, channels in mappings.items():
         if user_name.lower() == recipient.lower():
+            # For email: prefer email_out (delivery address) over email (receive address)
+            if channel == "email" and channels.get("email_out"):
+                out_ids = channels["email_out"]
+                resolved = out_ids[0] if isinstance(out_ids, list) else str(out_ids)
+                log_message(f"Scheduler: resolved '{recipient}' → '{resolved}' for {channel} (email_out)")
+                return resolved
             ids = channels.get(channel, [])
             if ids:
                 resolved = ids[0] if isinstance(ids, list) else str(ids)
@@ -452,7 +458,30 @@ async def _deliver_announce(job: Job, response_text: str) -> None:
         if resolved:
             recipient = resolved
 
-    # Auto-resolve from channel allowlist if still empty (use owner = first entry)
+    # Auto-resolve if still empty: first check user_mapping (email_out), then allowlist
+    if not recipient:
+        import json as _json
+        from .config import DATA_DIR
+        mapping_path = DATA_DIR / "user_mapping.json"
+        if mapping_path.exists():
+            try:
+                mappings = _json.loads(mapping_path.read_text(encoding="utf-8"))
+                # Take first user's outbound address
+                for user_name, channels in mappings.items():
+                    if channel_name == "email" and channels.get("email_out"):
+                        out_ids = channels["email_out"]
+                        recipient = out_ids[0] if isinstance(out_ids, list) else str(out_ids)
+                        log_message(f"Scheduler: auto-resolved to {user_name}'s email_out: {recipient}")
+                        break
+                    ids = channels.get(channel_name, [])
+                    if ids:
+                        recipient = ids[0] if isinstance(ids, list) else str(ids)
+                        log_message(f"Scheduler: auto-resolved to {user_name}: {recipient}")
+                        break
+            except (ValueError, OSError):
+                pass
+
+    # Fallback: channel allowlist (owner = first entry)
     if not recipient:
         from .credential_broker import broker
         allowlist_keys = {
@@ -465,7 +494,7 @@ async def _deliver_announce(job: Job, response_text: str) -> None:
             allowlist = broker.get(*key)
             if allowlist and allowlist != "*":
                 recipient = allowlist.split(",")[0].strip()
-                log_message(f"Scheduler: auto-resolved recipient for {channel_name}: {recipient}")
+                log_message(f"Scheduler: fallback to allowlist: {recipient}")
 
     if not recipient:
         log_message(f"Scheduler: job '{job.name}' has no recipient and no allowlist for {channel_name}", "error")
