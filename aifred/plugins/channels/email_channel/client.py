@@ -265,6 +265,21 @@ def send_email(to: str, subject: str, body: str, reply_to_id: Optional[str] = No
         smtp.login(email_user, broker.get("email", "password"))
         smtp.send_message(msg)
 
+    # Copy to Sent folder (like any normal mail client)
+    try:
+        with _imap_connect() as imap:
+            # GMX uses "Gesendet", other providers may use "Sent"
+            sent_folder = "Gesendet"
+            status, _ = imap.select(sent_folder)
+            if status != "OK":
+                sent_folder = "Sent"
+                status, _ = imap.select(sent_folder)
+            if status == "OK":
+                import time
+                imap.append(sent_folder, "\\Seen", imaplib.Time2Internaldate(time.time()), msg.as_bytes())
+    except Exception as exc:
+        log_message(f"📧 Email: could not copy to Sent folder: {exc}", "warning")
+
     log_message(f"📧 Email: sent to {to} — {subject} (Message-ID: {message_id})")
     return f"Email sent to {to}: {subject} [msg_id:{message_id}]"
 

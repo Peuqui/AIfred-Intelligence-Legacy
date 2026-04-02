@@ -416,6 +416,14 @@ class BackendMixin(rx.State, mixin=True):
             except (RuntimeError, OSError) as e:
                 log_message(f"ℹ️ Ollama not available for startup cleanup: {e}")
 
+            # Start Message Hub (channel listeners, scheduler)
+            from ..lib.message_hub import message_hub, register_channel_workers
+            register_channel_workers(message_hub)
+            from ..lib.scheduler import scheduler_loop
+            if not message_hub.is_running("scheduler"):
+                message_hub.register("scheduler", scheduler_loop)
+            await message_hub.start_all()
+
             print("✅ Global initialization complete")
 
         # PER-SESSION INITIALIZATION (every user/tab/reload)

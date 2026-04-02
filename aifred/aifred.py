@@ -1014,17 +1014,17 @@ import contextlib  # noqa: E402
 
 @contextlib.asynccontextmanager
 async def _message_hub_lifespan():
-    """Start Message Hub workers on app startup, stop on shutdown."""
-    from .lib.message_hub import message_hub  # noqa: E402
-    from .lib.logging_utils import log_message as _log  # noqa: E402
+    """Start Message Hub on ASGI startup, stop on shutdown.
 
-    # Register channel workers + scheduler
-    _register_message_hub_workers(message_hub)
-
+    This handles the initial start. on_load() provides a safety net
+    for Granian worker respawns where the lifespan doesn't re-run.
+    """
+    from .lib.message_hub import message_hub, register_channel_workers  # noqa: E402
     from .lib.scheduler import scheduler_loop  # noqa: E402
-    message_hub.register("scheduler", scheduler_loop)
 
-    _log("Message Hub: initializing...")
+    register_channel_workers(message_hub)
+    if not message_hub.is_running("scheduler"):
+        message_hub.register("scheduler", scheduler_loop)
     await message_hub.start_all()
     try:
         yield
@@ -1035,30 +1035,11 @@ async def _message_hub_lifespan():
 def _register_message_hub_workers(hub: object) -> None:
     """Register all channel listener workers with the Message Hub.
 
-    Auto-discovers channel plugins and registers those that are
-    both configured (credentials present) and enabled in settings.
+    Delegates to register_channel_workers() in message_hub module.
+    Kept for backwards compatibility with settings mixin.
     """
-    from .lib.message_hub import MessageHub  # noqa: E402
-    from .lib.settings import load_settings  # noqa: E402
-    from .lib.plugin_registry import all_channels  # noqa: E402
-
-    assert isinstance(hub, MessageHub)
-
-    settings = load_settings() or {}
-
-    channel_toggles = settings.get("channel_toggles", {})
-
-    for name, plugin in all_channels().items():
-        toggles = channel_toggles.get(name, {})
-        plugin_on = toggles.get("monitor", False)
-        # For always_reply channels: "monitor" toggle controls both plugin + listener
-        # For others: "listener" sub-toggle controls the listener separately
-        listener_on = plugin_on if plugin.always_reply else toggles.get("listener", False)
-        if plugin.is_configured() and plugin_on and listener_on:
-            hub.register(name, plugin.listener_loop)
-        else:
-            from .lib.logging_utils import log_message as _log  # noqa: E402
-            _log(f"Message Hub: channel '{name}' skipped (configured={plugin.is_configured()}, enabled={plugin_on}, listener={listener_on})")
+    from .lib.message_hub import register_channel_workers  # noqa: E402
+    register_channel_workers(hub)  # type: ignore[arg-type]
 
 
 app.register_lifespan_task(_message_hub_lifespan)

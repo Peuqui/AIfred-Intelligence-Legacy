@@ -10,6 +10,7 @@ aifred/plugins/channels/ by the unified registry.
 
 from __future__ import annotations
 
+import sys
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Optional, Protocol, runtime_checkable
@@ -131,6 +132,16 @@ class BaseChannel(ABC):
 
     def build_reply_metadata(self, message: "InboundMessage") -> dict:
         return {}
+
+    def channel_log(self, msg: str, level: str = "info") -> None:
+        """Log to both debug-log file AND stderr (→ journalctl).
+
+        Use this for all channel lifecycle messages (connect, disconnect,
+        errors, received/sent messages) so they survive worker restarts.
+        """
+        from .logging_utils import log_message
+        log_message(msg, level)
+        print(f"[{self.name}] {msg}", file=sys.stderr, flush=True)
 
     def get_tools(self, ctx: "PluginContext") -> list["Tool"]:
         """Optional: Return tools this channel provides for LLM function calling.

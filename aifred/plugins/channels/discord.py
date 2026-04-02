@@ -108,17 +108,18 @@ class DiscordChannel(BaseChannel):
         from ...lib.credential_broker import broker
 
         if not self.is_configured():
-            log_message("Discord Plugin: not configured, not starting", "warning")
+            self.channel_log("Discord Plugin: not configured, not starting", "warning")
             return
 
         bot_token = broker.get("discord", "bot_token")
         allowed_channels = _parse_channel_ids(broker.get("discord", "channel_ids"))
+        _log = self.channel_log  # Capture for use in inner functions
 
-        log_message("Discord Plugin: starting bot...")
+        _log("Discord Plugin: starting bot...")
         if allowed_channels:
-            log_message(f"Discord Plugin: watching channels {allowed_channels}")
+            _log(f"Discord Plugin: watching channels {allowed_channels}")
         else:
-            log_message("Discord Plugin: no channel IDs configured, listening on all channels")
+            _log("Discord Plugin: no channel IDs configured, listening on all channels")
 
         intents = discord.Intents.default()
         intents.message_content = True
@@ -139,12 +140,12 @@ class DiscordChannel(BaseChannel):
                 return
             await interaction.response.send_message("Deleting messages...", ephemeral=True)
             deleted = await interaction.channel.purge()  # type: ignore[union-attr]
-            log_message(f"Discord Plugin: /clear — purged {len(deleted)} messages in #{getattr(interaction.channel, 'name', '?')}")
+            _log(f"Discord Plugin: /clear — purged {len(deleted)} messages in #{getattr(interaction.channel, 'name', '?')}")
 
         @client.event
         async def on_ready() -> None:
             await tree.sync()
-            log_message(f"Discord Plugin: connected as {client.user}, slash commands synced")
+            _log(f"Discord Plugin: connected as {client.user}, slash commands synced")
 
         @client.event
         async def on_message(message: discord.Message) -> None:
@@ -178,7 +179,7 @@ class DiscordChannel(BaseChannel):
                 },
             )
 
-            log_message(
+            _log(
                 f"Discord Plugin: message from {sender} "
                 f"in #{inbound.metadata.get('channel_name', '?')}"
             )
@@ -187,14 +188,14 @@ class DiscordChannel(BaseChannel):
         try:
             await client.start(bot_token)
         except asyncio.CancelledError:
-            log_message("Discord Plugin: shutting down")
+            _log("Discord Plugin: shutting down")
             await client.close()
             _discord_client = None
         except discord.LoginFailure:
-            log_message("Discord Plugin: invalid bot token", "error")
+            _log("Discord Plugin: invalid bot token", "error")
             _discord_client = None
         except Exception as exc:
-            log_message(f"Discord Plugin: error — {exc}", "error")
+            _log(f"Discord Plugin: error — {exc}", "error")
             _discord_client = None
 
     # ── Reply ─────────────────────────────────────────────────
@@ -202,7 +203,7 @@ class DiscordChannel(BaseChannel):
     async def send_reply(self, outbound: "OutboundMessage", original: "InboundMessage") -> None:
         """Send a reply message to the Discord channel."""
         if not _discord_client:
-            log_message("Discord Plugin: no client connected, cannot send reply", "error")
+            self.channel_log("Discord Plugin: no client connected, cannot send reply", "error")
             return
 
         channel_id = int(outbound.channel_id)
@@ -212,7 +213,7 @@ class DiscordChannel(BaseChannel):
             try:
                 channel = await _discord_client.fetch_channel(channel_id)
             except Exception as exc:
-                log_message(f"Discord Plugin: channel {channel_id} not found — {exc}", "error")
+                self.channel_log(f"Discord Plugin: channel {channel_id} not found — {exc}", "error")
                 return
 
         # Discord has a 2000 char limit per message

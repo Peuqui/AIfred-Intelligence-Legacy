@@ -2,16 +2,23 @@
 
 Manages the lifecycle of channel workers (IMAP listener, Discord bot, etc.).
 Workers are registered as async coroutines and run as asyncio tasks.
-The hub is started/stopped via Reflex's lifespan mechanism.
+Started during global init (on_load) to survive Granian worker respawns.
 
 Workers auto-restart on crash with exponential backoff (max 5 retries).
 """
 
 import asyncio
+import sys
 from dataclasses import dataclass
 from typing import Callable, Coroutine
 
 from .logging_utils import log_message
+
+
+def _hub_log(msg: str, level: str = "info") -> None:
+    """Log to both debug-log file AND stdout (→ journalctl)."""
+    log_message(msg, level)
+    print(f"[MessageHub] {msg}", file=sys.stderr, flush=True)
 
 # Auto-restart limits
 _MAX_RESTART_ATTEMPTS = 5
@@ -48,16 +55,16 @@ class MessageHub:
         it will be cancelled on shutdown.
         """
         if name in self._workers:
-            log_message(f"Message Hub: worker '{name}' already registered, replacing", "warning")
+            _hub_log(f"Message Hub: worker '{name}' already registered, replacing", "warning")
         self._workers[name] = _Worker(name=name, factory=factory)
-        log_message(f"Message Hub: registered worker '{name}'")
+        _hub_log(f"Message Hub: registered worker '{name}'")
 
     def unregister(self, name: str) -> None:
         """Remove a worker (stops it first if running)."""
         worker = self._workers.pop(name, None)
         if worker and worker.task and not worker.task.done():
             worker.task.cancel()
-            log_message(f"Message Hub: unregistered + cancelled worker '{name}'")
+            _hub_log(f"Message Hub: unregistered + cancelled worker '{name}'")
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -74,9 +81,9 @@ class MessageHub:
             )
         started = [w.name for w in self._workers.values() if w.task]
         if started:
-            log_message(f"Message Hub: started workers: {', '.join(started)}")
+            _hub_log(f"Message Hub: started workers: {', '.join(started)}")
         else:
-            log_message("Message Hub: no workers registered")
+            _hub_log("Message Hub: no workers registered")
 
     async def stop_all(self) -> None:
         """Cancel all running worker tasks and wait for them to finish."""
@@ -85,11 +92,11 @@ class MessageHub:
             if worker.task and not worker.task.done():
                 worker.task.cancel()
                 tasks_to_cancel.append(worker.task)
-                log_message(f"Message Hub: cancelling worker '{worker.name}'")
+                _hub_log(f"Message Hub: cancelling worker '{worker.name}'")
 
         if tasks_to_cancel:
             await asyncio.gather(*tasks_to_cancel, return_exceptions=True)
-            log_message("Message Hub: all workers stopped")
+            _hub_log("Message Hub: all workers stopped")
 
         # Clear task references
         for worker in self._workers.values():
@@ -129,10 +136,10 @@ class MessageHub:
                 worker.restart_count = 0  # Reset on successful start
                 await worker.factory()
                 # factory returned normally — don't restart
-                log_message(f"Message Hub: worker '{worker.name}' exited normally")
+                _hub_log(f"Message Hub: worker '{worker.name}' exited normally")
                 return
             except asyncio.CancelledError:
-                log_message(f"Message Hub: worker '{worker.name}' stopped")
+                _hub_log(f"Message Hub: worker '{worker.name}' stopped")
                 return
             except Exception as exc:
                 worker.restart_count += 1
@@ -141,7 +148,7 @@ class MessageHub:
                         f"CRITICAL: worker '{worker.name}' crashed {worker.restart_count} times, "
                         f"permanently dead. Last error: {exc}"
                     )
-                    log_message(f"Message Hub: {error_msg}", "error")
+                    _hub_log(f"Message Hub: {error_msg}", "error")
                     # Write notification so the UI can show it
                     from .message_processor import write_hub_notification
                     write_hub_notification(
@@ -157,7 +164,7 @@ class MessageHub:
                     _INITIAL_BACKOFF_SECONDS * (2 ** (worker.restart_count - 1)),
                     _MAX_BACKOFF_SECONDS,
                 )
-                log_message(
+                _hub_log(
                     f"Message Hub: worker '{worker.name}' crashed ({worker.restart_count}/{_MAX_RESTART_ATTEMPTS}): "
                     f"{exc} — restarting in {backoff}s",
                     "error",
@@ -169,3 +176,30 @@ class MessageHub:
 # Module-level singleton
 # ---------------------------------------------------------------------------
 message_hub = MessageHub()
+
+
+def register_channel_workers(hub: MessageHub | None = None) -> None:
+    """Register all configured channel listeners with the hub.
+
+    Auto-discovers channel plugins and registers those that are
+    both configured (credentials present) and enabled in settings.
+    """
+    hub = hub or message_hub
+
+    from .settings import load_settings
+    from .plugin_registry import all_channels
+
+    settings = load_settings() or {}
+    channel_toggles = settings.get("channel_toggles", {})
+
+    for name, plugin in all_channels().items():
+        if hub.is_running(name):
+            continue  # already running, don't re-register
+        toggles = channel_toggles.get(name, {})
+        plugin_on = toggles.get("monitor", False)
+        listener_on = plugin_on if plugin.always_reply else toggles.get("listener", False)
+        if plugin.is_configured() and plugin_on and listener_on:
+            hub.register(name, plugin.listener_loop)
+        else:
+            _hub_log(f"Message Hub: channel '{name}' skipped "
+                     f"(configured={plugin.is_configured()}, enabled={plugin_on}, listener={listener_on})")

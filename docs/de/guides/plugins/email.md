@@ -4,18 +4,67 @@
 
 Channel-Plugin fuer E-Mail-Kommunikation via IMAP IDLE und SMTP.
 
+## Architektur-Ueberblick
+
+```
+Externer Absender                      AIfred (GMX-Account)
+      |                                      |
+      |--- E-Mail -->  INBOX  <-- IMAP IDLE Listener (Background Worker)
+      |                                      |
+      |                              _process_uid()
+      |                                      |
+      |                              Message Processor
+      |                              (Session + Routing)
+      |                                      |
+      |                                LLM generiert Antwort
+      |                                      |
+      |<-- Auto-Reply ---  SMTP  <-- send_reply()
+```
+
 ## Features
 
 - **Push-basiert:** IMAP IDLE fuer sofortige Benachrichtigung bei neuen E-Mails
-- **Ordner-Management:** Konfigurierbare IMAP-Ordner zum Ueberwachen
-- **Markierungen:** Gelesene/Beantwortete E-Mails werden korrekt geflaggt
-- **Auto-Reply:** Automatische Antworten pro Kanal konfigurierbar
+- **Auto-Reply:** Eingehende Mails werden automatisch beantwortet
+- **Startup-Recovery:** Mails die waehrend eines Neustarts ankommen, werden beim Start nachgeholt (Checkpoint-basiert)
+- **Session-Routing:** Replies werden via `In-Reply-To` Header der urspruenglichen Session zugeordnet
+- **Logging:** Alle Lifecycle-Events im journalctl (`journalctl -u aifred-intelligence | grep "\[email\]"`)
+
+## Antwort-Verhalten
+
+Das LLM unterscheidet automatisch zwischen zwei Szenarien:
+
+| Eingehende Mail | AIfred's Verhalten |
+|-----------------|-------------------|
+| Normale Konversation ("Hallo", Fragen, Info) | Antwortet direkt per Auto-Reply |
+| Irreversible Aktion ("Schick Mail an Bob", "Erstelle Termin") | Zeigt Entwurf, wartet auf Bestaetigung per Reply |
+
+Bei irreversiblen Aktionen entsteht ein Multi-Turn-Flow ueber E-Mail:
+```
+Externer → "Schick eine Mail an bob@example.com mit Inhalt XYZ"
+AIfred   → Auto-Reply: "Hier was ich tun wuerde: ... Bitte bestaetigen."
+Externer → Reply: "Ja"          (landet in gleicher Session via In-Reply-To)
+AIfred   → Fuehrt Aktion aus, Auto-Reply: "Erledigt."
+```
+
+## Startup-Recovery (Checkpoint)
+
+Der IMAP-Listener speichert nach jeder verarbeiteten Mail die UID in
+`data/message_hub/imap_checkpoint.json`:
+
+```json
+{"last_uid": 146, "uidvalidity": 1278976979}
+```
+
+Beim (Neu-)Start:
+- Alle UIDs > `last_uid` werden als verpasst erkannt und nachgeholt
+- Bei UIDVALIDITY-Aenderung (IMAP-Server hat UIDs neu vergeben): Recovery wird uebersprungen
+- Erster Start (kein Checkpoint): Alle bestehenden Mails als "bekannt" behandelt
 
 ## Konfiguration
 
 - IMAP/SMTP-Server, Port, Credentials ueber `.env` oder UI-Modal
 - TLS/SSL konfigurierbar
-- Ueberwachte Ordner waehlbar
+- Allowlist fuer eingehende Absender (`EMAIL_ALLOWED_SENDERS`)
 
 ## User-Mapping und E-Mail-Routing
 

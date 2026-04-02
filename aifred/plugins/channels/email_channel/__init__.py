@@ -10,6 +10,7 @@ import asyncio
 import email as email_lib
 import email.utils
 import imaplib
+import pathlib
 import ssl
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
@@ -27,6 +28,45 @@ _IDLE_TIMEOUT_SECONDS = 5 * 60
 
 # After a connection error, wait before reconnecting
 _RECONNECT_DELAY_SECONDS = 30
+
+# Persistent tracking: last processed UID (survives worker restarts)
+_CHECKPOINT_FILE = None  # Initialized lazily
+
+
+def _get_checkpoint_file() -> pathlib.Path:
+    """Get path to the IMAP checkpoint file."""
+    global _CHECKPOINT_FILE
+    if _CHECKPOINT_FILE is None:
+        from ....lib.config import DATA_DIR
+        _CHECKPOINT_FILE = DATA_DIR / "message_hub" / "imap_checkpoint.json"
+        _CHECKPOINT_FILE.parent.mkdir(parents=True, exist_ok=True)
+    return _CHECKPOINT_FILE
+
+
+def _load_checkpoint() -> tuple[int, int]:
+    """Load last processed UID and UIDVALIDITY from disk.
+
+    Returns (last_uid, uidvalidity). Both 0 if no checkpoint exists.
+    """
+    import json
+    path = _get_checkpoint_file()
+    if not path.exists():
+        return 0, 0
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return int(data.get("last_uid", 0)), int(data.get("uidvalidity", 0))
+    except (json.JSONDecodeError, ValueError, TypeError):
+        return 0, 0
+
+
+def _save_checkpoint(last_uid: int, uidvalidity: int) -> None:
+    """Persist the last processed UID and UIDVALIDITY."""
+    import json
+    path = _get_checkpoint_file()
+    path.write_text(
+        json.dumps({"last_uid": last_uid, "uidvalidity": uidvalidity}),
+        encoding="utf-8",
+    )
 
 
 class EmailChannel(BaseChannel):
@@ -143,23 +183,51 @@ class EmailChannel(BaseChannel):
         from ....lib.credential_broker import broker
 
         if not self.is_configured():
-            log_message("Email Plugin: not configured, not starting", "warning")
+            self.channel_log("Email Plugin: not configured, not starting", "warning")
             return
 
-        log_message("Email Plugin: starting IMAP IDLE listener...")
+        self.channel_log("Email Plugin: starting IMAP IDLE listener...")
 
         while True:
             imap: imaplib.IMAP4_SSL | None = None
             try:
-                imap = await asyncio.to_thread(
+                imap, uidvalidity = await asyncio.to_thread(
                     _connect_imap,
                     broker.get("email", "imap_host"),
                     int(broker.get("email", "imap_port") or "993"),
                     broker.get("email", "user"),
                     broker.get("email", "password"),
                 )
-                known_uids = await asyncio.to_thread(_get_existing_uids, imap)
-                log_message(f"Email Plugin: connected, {len(known_uids)} existing messages")
+
+                # ── Startup Recovery ─────────────────────────────
+                # Check for emails that arrived while we were down.
+                saved_uid, saved_uv = _load_checkpoint()
+                all_uids = await asyncio.to_thread(_get_existing_uids, imap)
+
+                if saved_uv != 0 and saved_uv != uidvalidity:
+                    # UIDVALIDITY changed — UIDs were reassigned, can't trust saved_uid
+                    self.channel_log("Email Plugin: UIDVALIDITY changed, skipping recovery")
+                    missed_uids: set[bytes] = set()
+                elif saved_uid > 0:
+                    # Process any UIDs newer than the last one we handled
+                    missed_uids = {u for u in all_uids if int(u) > saved_uid}
+                else:
+                    # First run ever — no checkpoint, treat all as known
+                    missed_uids = set()
+
+                if missed_uids:
+                    self.channel_log(f"Email Plugin: recovering {len(missed_uids)} missed email(s)...")
+                    for uid in sorted(missed_uids, key=lambda u: int(u)):
+                        await self._process_uid(imap, uid)
+
+                # Update checkpoint to highest current UID
+                known_uids = all_uids
+                if known_uids:
+                    max_uid = max(int(u) for u in known_uids)
+                    _save_checkpoint(max_uid, uidvalidity)
+
+                self.channel_log(f"Email Plugin: connected, {len(known_uids)} existing messages"
+                            f" (checkpoint UID {max_uid if known_uids else 0})")
 
                 while True:
                     # Enter IDLE mode
@@ -182,27 +250,17 @@ class EmailChannel(BaseChannel):
                         current_uids = await asyncio.to_thread(_get_existing_uids, imap)
                         new_uids = current_uids - known_uids
 
-                        for uid in new_uids:
-                            inbound = await asyncio.to_thread(
-                                _fetch_email_as_inbound, imap, uid
-                            )
-                            if inbound:
-                                if not _is_sender_allowed(inbound.sender):
-                                    log_message(
-                                        f"Email Plugin: blocked mail from {inbound.sender} "
-                                        f"(not in whitelist)"
-                                    )
-                                    continue
-                                log_message(
-                                    f"Email Plugin: new mail from {inbound.sender} "
-                                    f"— {inbound.metadata.get('subject', '?')}"
-                                )
-                                await _dispatch_inbound(inbound)
+                        for uid in sorted(new_uids, key=lambda u: int(u)):
+                            await self._process_uid(imap, uid)
 
+                        # Update checkpoint to highest UID
                         known_uids = current_uids
+                        if known_uids:
+                            max_uid = max(int(u) for u in known_uids)
+                            _save_checkpoint(max_uid, uidvalidity)
 
             except asyncio.CancelledError:
-                log_message("Email Plugin: shutting down")
+                self.channel_log("Email Plugin: shutting down")
                 if imap:
                     try:
                         imap.logout()
@@ -211,13 +269,34 @@ class EmailChannel(BaseChannel):
                 return
 
             except Exception as exc:
-                log_message(f"Email Plugin: error — {exc}, reconnecting in {_RECONNECT_DELAY_SECONDS}s", "error")
+                self.channel_log(f"Email Plugin: error — {exc}, reconnecting in {_RECONNECT_DELAY_SECONDS}s", "error")
                 if imap:
                     try:
                         imap.logout()
                     except Exception:
                         pass
                 await asyncio.sleep(_RECONNECT_DELAY_SECONDS)
+
+    # ── Single-mail processing ─────────────────────────────────
+
+    async def _process_uid(self, imap: imaplib.IMAP4_SSL, uid: bytes) -> None:
+        """Fetch, validate, and dispatch a single email by UID.
+
+        Writes checkpoint after successful processing so no mail is
+        lost on crash.
+        """
+        inbound = await asyncio.to_thread(_fetch_email_as_inbound, imap, uid)
+        if not inbound:
+            return
+        if not _is_sender_allowed(inbound.sender):
+            self.channel_log(f"Email Plugin: blocked mail from {inbound.sender} (not in whitelist)")
+            return
+        self.channel_log(f"Email Plugin: new mail from {inbound.sender} — {inbound.metadata.get('subject', '?')}")
+        await _dispatch_inbound(inbound)
+
+        # Update checkpoint after each successfully processed mail
+        uidvalidity = _load_checkpoint()[1]
+        _save_checkpoint(int(uid), uidvalidity)
 
     # ── Reply ─────────────────────────────────────────────────
 
@@ -313,13 +392,28 @@ def _is_sender_allowed(sender: str) -> bool:
 # ── IMAP helpers (moved from imap_listener.py) ───────────────
 
 
-def _connect_imap(host: str, port: int, user: str, password: str) -> imaplib.IMAP4_SSL:
-    """Create a fresh IMAP connection and select INBOX."""
+def _connect_imap(host: str, port: int, user: str, password: str) -> tuple[imaplib.IMAP4_SSL, int]:
+    """Create a fresh IMAP connection and select INBOX.
+
+    Returns (imap_connection, uidvalidity).
+    """
     ctx = ssl.create_default_context()
     imap = imaplib.IMAP4_SSL(host, port, ssl_context=ctx)
     imap.login(user, password)
-    imap.select("INBOX")
-    return imap
+    status, data = imap.select("INBOX")
+    # UIDVALIDITY from SELECT response (data[0] is message count, not uidvalidity)
+    # Parse from imap.response('UIDVALIDITY') or use a STATUS command
+    uidvalidity = 0
+    try:
+        _, uv_data = imap.status("INBOX", "(UIDVALIDITY)")
+        if uv_data and uv_data[0]:
+            import re
+            match = re.search(rb"UIDVALIDITY\s+(\d+)", uv_data[0])
+            if match:
+                uidvalidity = int(match.group(1))
+    except Exception:
+        pass
+    return imap, uidvalidity
 
 
 def _get_existing_uids(imap: imaplib.IMAP4_SSL) -> set[bytes]:

@@ -92,11 +92,12 @@ class TelegramChannel(BaseChannel):
         )
 
         if not self.is_configured():
-            log_message("Telegram Plugin: not configured, not starting", "warning")
+            self.channel_log("Telegram Plugin: not configured, not starting", "warning")
             return
 
         token = broker.get("telegram", "bot_token")
-        log_message("Telegram Plugin: starting bot...")
+        _log = self.channel_log  # Capture for use in inner functions
+        _log("Telegram Plugin: starting bot...")
 
         app = Application.builder().token(token).build()
 
@@ -108,7 +109,7 @@ class TelegramChannel(BaseChannel):
             from ....lib.routing_table import routing_table
             routing_table.delete_route("telegram", chat_id)
             await update.message.reply_text("Conversation cleared.")
-            log_message(f"Telegram Plugin: /clear by user {update.effective_user.id}")
+            _log(f"Telegram Plugin: /clear by user {update.effective_user.id}")
 
         # Message handler
         async def _on_message(update: Update, context: object) -> None:
@@ -116,11 +117,11 @@ class TelegramChannel(BaseChannel):
                 return
             user = update.effective_user
             if not _is_user_allowed(user.id):
-                log_message(f"Telegram Plugin: blocked message from {user.id} (not in whitelist)")
+                _log(f"Telegram Plugin: blocked message from {user.id} (not in whitelist)")
                 return
 
             inbound = _build_inbound(update)
-            log_message(f"Telegram Plugin: message from {user.first_name} ({user.id})")
+            _log(f"Telegram Plugin: message from {user.first_name} ({user.id})")
             await _dispatch_inbound(inbound)
 
         app.add_handler(CommandHandler("clear", _cmd_clear))
@@ -130,14 +131,14 @@ class TelegramChannel(BaseChannel):
             await app.initialize()
             await app.start()
             await app.updater.start_polling(drop_pending_updates=True)
-            log_message("Telegram Plugin: bot started, polling for messages")
+            _log("Telegram Plugin: bot started, polling for messages")
 
             # Keep alive until cancelled
             while True:
                 await asyncio.sleep(1)
 
         except asyncio.CancelledError:
-            log_message("Telegram Plugin: shutting down")
+            _log("Telegram Plugin: shutting down")
         finally:
             await app.updater.stop()
             await app.stop()
