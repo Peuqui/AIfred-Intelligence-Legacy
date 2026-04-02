@@ -7,7 +7,7 @@ temperature configuration, and model selection for Sokrates/Salomo.
 
 from __future__ import annotations
 
-from typing import Dict, List
+from typing import ClassVar, Dict, List
 
 import reflex as rx
 
@@ -655,6 +655,16 @@ class AgentConfigMixin(rx.State, mixin=True):
         self.sokrates_pro_args = ""
         self.sokrates_contra_args = ""
         self.debate_round = 0
+
+        # Enforce agent selection rules per mode
+        if mode == "symposion":
+            # Symposion: ensure at least one agent is selected
+            if not self.symposion_agents:
+                self.symposion_agents = ["aifred"]
+        elif mode in ("critical_review", "auto_consensus", "tribunal"):
+            # These modes always use AIfred + Sokrates + Salomo
+            self.active_agent = "aifred"
+
         self._save_settings()  # type: ignore[attr-defined]
 
         mode_labels = {
@@ -662,6 +672,7 @@ class AgentConfigMixin(rx.State, mixin=True):
             "critical_review": "Critical Review",
             "auto_consensus": "Auto-Consensus",
             "tribunal": "Tribunal",
+            "symposion": "Symposion",
         }
         self.add_debug(f"\U0001f916 Discussion mode: {mode_labels.get(mode, mode)}")  # type: ignore[attr-defined]
 
@@ -734,6 +745,11 @@ class AgentConfigMixin(rx.State, mixin=True):
             ["symposion", TranslationManager.get_text("multi_agent_symposion", self.ui_language)],  # type: ignore[attr-defined]
         ]
 
+    # Core agents used in fixed multi-agent modes
+    CORE_AGENTS: ClassVar[set[str]] = {"aifred", "sokrates", "salomo"}
+    # Modes where only core agents participate and selection is locked
+    FIXED_MODES: ClassVar[set[str]] = {"critical_review", "auto_consensus", "tribunal"}
+
     @rx.var(deps=["_agent_dropdown_items"], auto_deps=False)
     def selectable_agents(self) -> List[dict[str, str]]:
         """Agent list for the active-agent toggle row (id, display_name, emoji)."""
@@ -750,6 +766,11 @@ class AgentConfigMixin(rx.State, mixin=True):
             })
         return result
 
+    @rx.var(deps=["multi_agent_mode"], auto_deps=False)
+    def is_fixed_agent_mode(self) -> bool:
+        """True when the current mode locks agents to AIfred+Sokrates+Salomo."""
+        return self.multi_agent_mode in self.FIXED_MODES
+
     def toggle_agent_memory(self) -> None:
         """Toggle agent memory on/off (incognito mode)."""
         self.agent_memory_enabled = not self.agent_memory_enabled
@@ -760,6 +781,9 @@ class AgentConfigMixin(rx.State, mixin=True):
 
     def set_active_agent(self, agent_id: str) -> None:
         """Set which agent responds to messages. In Symposion mode, toggles multi-select."""
+        # Fixed modes: agents are locked, ignore clicks
+        if self.multi_agent_mode in self.FIXED_MODES:
+            return
         if self.multi_agent_mode == "symposion":
             self.toggle_symposion_agent(agent_id)
             return
@@ -775,6 +799,10 @@ class AgentConfigMixin(rx.State, mixin=True):
         cfg = get_agent_config(agent_id)
         label = cfg.display_name if cfg else agent_id.capitalize()
         if agent_id in self.symposion_agents:
+            # Don't allow deselecting the last agent
+            if len(self.symposion_agents) <= 1:
+                self.add_debug(f"🏛️ Symposion: {label} ist der letzte Agent, kann nicht entfernt werden")  # type: ignore[attr-defined]
+                return
             self.symposion_agents = [a for a in self.symposion_agents if a != agent_id]
             self.add_debug(f"🏛️ Symposion: {label} removed")  # type: ignore[attr-defined]
         else:

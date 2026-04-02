@@ -80,7 +80,26 @@
         "personality": true,
         "reasoning": false,
         "thinking": true
-      }
+      },
+      "tools": [
+        "epim_search",
+        "epim_create",
+        "epim_update",
+        "epim_delete",
+        "scheduler_create",
+        "scheduler_list",
+        "scheduler_delete",
+        "translate",
+        "list_files",
+        "read_file",
+        "write_file",
+        "create_folder",
+        "delete_file",
+        "delete_folder",
+        "discord_send",
+        "email",
+        "telegram_send"
+      ]
     },
     "pater": {
       "display_name": "Pater Tuck",
@@ -162,7 +181,37 @@
         "personality": true,
         "reasoning": false,
         "thinking": true
-      }
+      },
+      "tools": [
+        "audio_play",
+        "audio_stop",
+        "audio_status",
+        "epim_search",
+        "epim_create",
+        "epim_update",
+        "epim_delete",
+        "web_search",
+        "web_fetch",
+        "scheduler_create",
+        "scheduler_list",
+        "scheduler_delete",
+        "list_files",
+        "read_file",
+        "write_file",
+        "create_folder",
+        "delete_file",
+        "delete_folder",
+        "index_document",
+        "search_documents",
+        "list_indexed",
+        "delete_document",
+        "chromadb_stats",
+        "chromadb_clear",
+        "store_memory",
+        "discord_send",
+        "email",
+        "telegram_send"
+      ]
     }
   }
 }

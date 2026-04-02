@@ -15,11 +15,22 @@ from .chat_display import processing_progress_banner
 
 def _agent_toggle_button(agent: rx.Var) -> rx.Component:
     """Render a single agent toggle button for the active-agent row."""
-    # In Symposion mode: multi-select (check if agent is in symposion_agents list)
+    # Core agent IDs that are locked in fixed modes
+    is_core = (agent["id"] == "aifred") | (agent["id"] == "sokrates") | (agent["id"] == "salomo")
+    is_fixed = AIState.is_fixed_agent_mode
+
+    # In fixed modes: core agents are always active, others always inactive
+    # In Symposion mode: multi-select via symposion_agents list
+    # In Standard mode: single active_agent
     is_symposion = AIState.multi_agent_mode == "symposion"
     is_selected_symposion = AIState.symposion_agents.contains(agent["id"])
     is_active_standard = AIState.active_agent == agent["id"]
-    is_active = rx.cond(is_symposion, is_selected_symposion, is_active_standard)
+    is_active = rx.cond(
+        is_fixed,
+        is_core,
+        rx.cond(is_symposion, is_selected_symposion, is_active_standard),
+    )
+
     return rx.button(
         rx.hstack(
             rx.cond(
@@ -35,7 +46,8 @@ def _agent_toggle_button(agent: rx.Var) -> rx.Component:
         size="2",
         variant=rx.cond(is_active, "solid", "soft"),
         color_scheme=rx.cond(is_active, "orange", "gray"),
-        cursor="pointer",
+        cursor=rx.cond(is_fixed, "default", "pointer"),
+        opacity=rx.cond(is_fixed & ~is_core, "0.35", rx.cond(is_fixed & is_core, "0.7", "1")),
         padding_x="10px",
         height="32px",
     )
@@ -531,33 +543,23 @@ def text_input_section() -> rx.Component:
                     "Inkognito-Modus (kein Gedächtnis)",
                 ),
             ),
-            # Agent toggle buttons (Standard + Symposion modes)
-            rx.cond(
-                (AIState.multi_agent_mode == "standard") | (AIState.multi_agent_mode == "symposion"),
-                rx.hstack(
-                    rx.box(
-                        width="1px",
-                        height="20px",
-                        background=COLORS["border"],
-                    ),
-                    rx.foreach(
-                        AIState.selectable_agents,
-                        _agent_toggle_button,
-                    ),
-                    rx.box(flex="1"),
-                    llm_parameters_accordion(),
-                    spacing="2",
-                    align="center",
-                    flex_wrap="wrap",
-                    width="100%",
+            # Agent toggle buttons (always visible in all modes)
+            rx.hstack(
+                rx.box(
+                    width="1px",
+                    height="20px",
+                    background=COLORS["border"],
                 ),
-                # LLM Parameters without agent buttons (non-standard modes)
-                rx.hstack(
-                    rx.box(flex="1"),
-                    llm_parameters_accordion(),
-                    spacing="2",
-                    align="center",
+                rx.foreach(
+                    AIState.selectable_agents,
+                    _agent_toggle_button,
                 ),
+                rx.box(flex="1"),
+                llm_parameters_accordion(),
+                spacing="2",
+                align="center",
+                flex_wrap="wrap",
+                width="100%",
             ),
             spacing="3",
             align="center",
