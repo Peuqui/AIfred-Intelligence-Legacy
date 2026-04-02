@@ -629,9 +629,13 @@ def _config_view() -> rx.Component:
                             width="100%",
                             align="center",
                         ),
-                        rx.vstack(
+                        rx.box(
                             *_tool_groups,
-                            spacing="2",
+                            style={
+                                "columns": ["1", "1", "2"],
+                                "column-gap": "16px",
+                                "& > *": {"break-inside": "avoid", "margin-bottom": "8px"},
+                            },
                             width="100%",
                         ),
                         spacing="2",
