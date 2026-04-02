@@ -233,8 +233,12 @@ def search_emails(query: str, folder: str = "INBOX", n: int = EMAIL_MAX_FETCH) -
     return results
 
 
-def send_email(to: str, subject: str, body: str, reply_to_id: Optional[str] = None) -> str:
-    """Send an email via SMTP. Returns confirmation string."""
+def send_email(to: str, subject: str, body: str, reply_to_id: Optional[str] = None, session_id: Optional[str] = None) -> str:
+    """Send an email via SMTP. Returns confirmation string.
+
+    If session_id is provided, registers the outgoing Message-ID in the
+    routing table so replies land in the same session.
+    """
     email_user = broker.get("email", "user")
     email_from = broker.get("email", "from") or email_user
 
@@ -279,6 +283,11 @@ def send_email(to: str, subject: str, body: str, reply_to_id: Optional[str] = No
                 imap.append(sent_folder, "\\Seen", imaplib.Time2Internaldate(time.time()), msg.as_bytes())
     except Exception as exc:
         log_message(f"📧 Email: could not copy to Sent folder: {exc}", "warning")
+
+    # Register outgoing Message-ID for session routing (single source of truth)
+    if session_id:
+        from ....lib.routing_table import routing_table
+        routing_table.set_route("email", message_id, session_id)
 
     log_message(f"📧 Email: sent to {to} — {subject} (Message-ID: {message_id})")
     return f"Email sent to {to}: {subject} [msg_id:{message_id}]"

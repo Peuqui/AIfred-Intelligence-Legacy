@@ -303,15 +303,21 @@ class EmailChannel(BaseChannel):
     async def send_reply(self, outbound: "OutboundMessage", original: "InboundMessage") -> None:
         """Send an email reply via SMTP."""
         from .client import send_email
+        from ....lib.routing_table import routing_table
 
         subject = outbound.metadata.get("subject", "Re: AIfred")
         reply_to_id = outbound.metadata.get("in_reply_to")
+
+        # Look up session_id so send_email can register the route
+        route = routing_table.get_route("email", original.channel_id)
+        sid = route.session_id if route else None
 
         send_email(
             to=outbound.recipient,
             subject=subject,
             body=outbound.text,
             reply_to_id=reply_to_id,
+            session_id=sid,
         )
         from ....lib.debug_bus import debug
         debug(f"📤 Auto-reply sent to {outbound.recipient}")
