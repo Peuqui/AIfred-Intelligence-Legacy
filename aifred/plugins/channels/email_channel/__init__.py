@@ -203,61 +203,55 @@ class EmailChannel(BaseChannel):
                 # Check for emails that arrived while we were down.
                 saved_uid, saved_uv = _load_checkpoint()
                 all_uids = await asyncio.to_thread(_get_existing_uids, imap)
+                max_uid = max(int(u) for u in all_uids) if all_uids else 0
 
                 if saved_uv != 0 and saved_uv != uidvalidity:
-                    # UIDVALIDITY changed — UIDs were reassigned, can't trust saved_uid
                     self.channel_log("Email Plugin: UIDVALIDITY changed, skipping recovery")
                     missed_uids: set[bytes] = set()
                 elif saved_uid > 0:
-                    # Process any UIDs newer than the last one we handled
                     missed_uids = {u for u in all_uids if int(u) > saved_uid}
                 else:
                     # First run ever — no checkpoint, treat all as known
                     missed_uids = set()
+
+                # Advance checkpoint BEFORE processing to prevent
+                # parallel workers from re-processing the same mails.
+                if max_uid > saved_uid:
+                    _save_checkpoint(max_uid, uidvalidity)
 
                 if missed_uids:
                     self.channel_log(f"Email Plugin: recovering {len(missed_uids)} missed email(s)...")
                     for uid in sorted(missed_uids, key=lambda u: int(u)):
                         await self._process_uid(imap, uid)
 
-                # Update checkpoint to highest current UID
                 known_uids = all_uids
-                if known_uids:
-                    max_uid = max(int(u) for u in known_uids)
-                    _save_checkpoint(max_uid, uidvalidity)
-
                 self.channel_log(f"Email Plugin: connected, {len(known_uids)} existing messages"
-                            f" (checkpoint UID {max_uid if known_uids else 0})")
+                            f" (checkpoint UID {max_uid})")
 
                 while True:
-                    # Enter IDLE mode
-                    tag = b"A001"
-                    await asyncio.to_thread(imap.send, tag + b" IDLE\r\n")  # type: ignore[arg-type]
-
+                    # Wrap entire IDLE cycle in timeout — if ANY part hangs
+                    # (dead socket, stale connection), we break out and reconnect.
                     try:
-                        response = await asyncio.wait_for(
-                            asyncio.to_thread(_read_idle_response, imap),
-                            timeout=_IDLE_TIMEOUT_SECONDS,
+                        await asyncio.wait_for(
+                            self._idle_cycle(imap),
+                            timeout=_IDLE_TIMEOUT_SECONDS + 30,  # IDLE timeout + margin
                         )
                     except asyncio.TimeoutError:
-                        response = b""
+                        self.channel_log("Email Plugin: IDLE cycle timed out, reconnecting...", "warning")
+                        raise OSError("IDLE cycle timeout")  # triggers reconnect
 
-                    # Exit IDLE
-                    await asyncio.to_thread(imap.send, b"DONE\r\n")  # type: ignore[arg-type]
-                    await asyncio.to_thread(_drain_idle_response, imap, tag)
+                    # Check for new messages after IDLE wakeup
+                    current_uids = await asyncio.to_thread(_get_existing_uids, imap)
+                    new_uids = current_uids - known_uids
 
-                    if b"EXISTS" in response:
-                        current_uids = await asyncio.to_thread(_get_existing_uids, imap)
-                        new_uids = current_uids - known_uids
+                    for uid in sorted(new_uids, key=lambda u: int(u)):
+                        await self._process_uid(imap, uid)
 
-                        for uid in sorted(new_uids, key=lambda u: int(u)):
-                            await self._process_uid(imap, uid)
-
-                        # Update checkpoint to highest UID
-                        known_uids = current_uids
-                        if known_uids:
-                            max_uid = max(int(u) for u in known_uids)
-                            _save_checkpoint(max_uid, uidvalidity)
+                    # Update checkpoint to highest UID
+                    known_uids = current_uids
+                    if known_uids:
+                        max_uid = max(int(u) for u in known_uids)
+                        _save_checkpoint(max_uid, uidvalidity)
 
             except asyncio.CancelledError:
                 self.channel_log("Email Plugin: shutting down")
@@ -277,24 +271,57 @@ class EmailChannel(BaseChannel):
                         pass
                 await asyncio.sleep(_RECONNECT_DELAY_SECONDS)
 
+    # ── IDLE cycle ────────────────────────────────────────────
+
+    async def _idle_cycle(self, imap: imaplib.IMAP4_SSL) -> None:
+        """Single IDLE enter → wait → exit cycle.
+
+        Wrapped in asyncio.wait_for by the caller so a dead connection
+        triggers a timeout instead of hanging forever.
+        """
+        tag = b"A001"
+        await asyncio.to_thread(imap.send, tag + b" IDLE\r\n")  # type: ignore[arg-type]
+
+        try:
+            response = await asyncio.wait_for(
+                asyncio.to_thread(_read_idle_response, imap),
+                timeout=_IDLE_TIMEOUT_SECONDS,
+            )
+        except asyncio.TimeoutError:
+            self.channel_log("Email Plugin: IDLE timeout (no events), re-entering IDLE")
+            response = b""
+
+        if response:
+            self.channel_log(f"Email Plugin: IDLE wakeup — {response.strip().decode(errors='replace')}")
+
+        # Exit IDLE — these can also hang on dead connections,
+        # but the outer timeout will catch them.
+        await asyncio.to_thread(imap.send, b"DONE\r\n")  # type: ignore[arg-type]
+        await asyncio.to_thread(_drain_idle_response, imap, tag)
+
     # ── Single-mail processing ─────────────────────────────────
 
     async def _process_uid(self, imap: imaplib.IMAP4_SSL, uid: bytes) -> None:
         """Fetch, validate, and dispatch a single email by UID.
 
-        Writes checkpoint after successful processing so no mail is
-        lost on crash.
+        Writes checkpoint after processing (including blocked mails)
+        so no UID is retried endlessly.
         """
         inbound = await asyncio.to_thread(_fetch_email_as_inbound, imap, uid)
         if not inbound:
+            self._update_checkpoint(uid)
             return
         if not _is_sender_allowed(inbound.sender):
             self.channel_log(f"Email Plugin: blocked mail from {inbound.sender} (not in whitelist)")
+            self._update_checkpoint(uid)
             return
         self.channel_log(f"Email Plugin: new mail from {inbound.sender} — {inbound.metadata.get('subject', '?')}")
         await _dispatch_inbound(inbound)
+        self._update_checkpoint(uid)
 
-        # Update checkpoint after each successfully processed mail
+    @staticmethod
+    def _update_checkpoint(uid: bytes) -> None:
+        """Advance checkpoint to this UID."""
         uidvalidity = _load_checkpoint()[1]
         _save_checkpoint(int(uid), uidvalidity)
 

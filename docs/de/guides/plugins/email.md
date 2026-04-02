@@ -98,3 +98,31 @@ Die Zuordnung wird in `data/user_mapping.json` konfiguriert:
 ### Allowlist (Eingang)
 
 Die Allowlist in `EMAIL_ALLOWED_SENDERS` kontrolliert nur **eingehende** E-Mails — wer darf AIfred anschreiben. Ausgehende E-Mails koennen an jede Adresse gesendet werden.
+
+## Delta Chat als Messenger-Alternative
+
+[Delta Chat](https://delta.chat) ist ein Messenger der E-Mail als Transport nutzt.
+Da AIfred ueber einen E-Mail-Account kommuniziert, funktioniert Delta Chat als
+Chat-artige Oberflaeche fuer die Kommunikation mit AIfred — aehnlich wie Telegram
+oder Discord, aber ohne separaten Bot-Account.
+
+### Einrichtung
+
+1. **Delta Chat installieren** (Desktop oder Mobil)
+2. **Eigenen E-Mail-Account hinzufuegen** (z.B. `markus.peuckert@mail.de`)
+3. **Mehrgeraete-Modus aktivieren** (Erweitert → Mehrgeraete-Modus)
+   - Dadurch ueberwacht Delta Chat den Gesendet-Ordner
+   - AIfred's Antworten erscheinen dann auch als Chat-Blasen
+4. **Neuen Chat starten** mit AIfred's E-Mail-Adresse (z.B. `lord.helmchen@gmx.net`)
+5. **Absender-Adresse in die Allowlist eintragen** (`EMAIL_ALLOWED_SENDERS`)
+
+### Hinweise
+
+- Delta Chat generiert `@localhost` Message-IDs — das Session-Routing
+  funktioniert trotzdem ueber `In-Reply-To` Header
+- Nachrichten von Delta Chat erscheinen in AIfred als normale eingehende E-Mails
+- AIfred's Antworten erscheinen in Delta Chat dank der Kopie im Gesendet-Ordner
+- Mehrere Profile moeglich: Ein Profil fuer den normalen Mail-Account,
+  ein weiteres fuer einen anderen Account — unabhaengig voneinander
+- Delta Chat zeigt Nachrichten als Chat-Blasen mit Zeitstempel,
+  was die Kommunikation mit AIfred natuerlicher wirken laesst
