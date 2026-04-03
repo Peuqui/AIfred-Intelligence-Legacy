@@ -143,6 +143,9 @@ async def process_inbound(message: InboundMessage) -> Optional[OutboundMessage]:
     from .plugin_registry import get_channel
     import asyncio
 
+    import time as _time
+    _t0 = _time.monotonic()
+
     # 0. Determine security tier for this channel
     from .security import resolve_tier_for_sender
     max_tier = resolve_tier_for_sender(message.channel, message.sender, message.metadata)
@@ -158,9 +161,13 @@ async def process_inbound(message: InboundMessage) -> Optional[OutboundMessage]:
         log_message(f"User mapping: {message.sender} -> {resolved_name}")
         message.sender = resolved_name
 
+    print(f"⏱️ Pipeline [{message.channel}]: pre-intent {_time.monotonic()-_t0:.2f}s", flush=True)
+
     # 2. Detect target agent, intent and language via LLM (same as browser)
     agent, intent, detected_lang = await detect_target_agent_via_llm(message.text)
     message.target_agent = agent
+
+    print(f"⏱️ Pipeline [{message.channel}]: post-intent {_time.monotonic()-_t0:.2f}s", flush=True)
 
     # 2. Find or create session via routing table
     route = routing_table.get_route(message.channel, message.channel_id)
@@ -191,7 +198,7 @@ async def process_inbound(message: InboundMessage) -> Optional[OutboundMessage]:
         _cfg = _get_agent_cfg(message.target_agent)
         agent_display_name = _cfg.display_name if _cfg else message.target_agent.capitalize()
 
-        debug(f"📨 {message.channel.upper()}: message from {message.sender}")
+        debug(f"📨 {channel_label}: message from {message.sender}")
         if subject and subject != "?":
             debug(f"📧 Subject: {subject}")
         debug(f"🤖 Agent: {agent_display_name}")
@@ -202,8 +209,12 @@ async def process_inbound(message: InboundMessage) -> Optional[OutboundMessage]:
 
         _notify("received")
 
+        print(f"⏱️ Pipeline [{message.channel}]: pre-sleep {_time.monotonic()-_t0:.2f}s", flush=True)
+
         # Give the browser time to pick up the toast before heavy work starts
         await asyncio.sleep(2)
+
+        print(f"⏱️ Pipeline [{message.channel}]: post-sleep {_time.monotonic()-_t0:.2f}s", flush=True)
 
         # ── Phase 2: Call AIfred engine ───────────────────────
         _notify("processing")
@@ -222,6 +233,8 @@ async def process_inbound(message: InboundMessage) -> Optional[OutboundMessage]:
         llm_context = wrap_external_message(
             llm_context, message.sender, message.channel, trust,
         )
+
+        print(f"⏱️ Pipeline [{message.channel}]: pre-engine {_time.monotonic()-_t0:.2f}s", flush=True)
 
         response_text, result_metadata = await _call_engine(
             user_text=llm_context,
@@ -407,7 +420,9 @@ def _save_to_session(
     """
     from .session_storage import load_session
 
-    channel_label = message.channel.upper()
+    from .plugin_registry import get_channel as _get_ch
+    _ch = _get_ch(message.channel)
+    channel_label = _ch.display_name if _ch else message.channel.capitalize()
     subject = message.metadata.get("subject", "")
     header = f"[{channel_label}] {message.sender}"
     if subject:

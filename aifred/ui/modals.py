@@ -1140,7 +1140,7 @@ def _cred_field_input(field: rx.Var) -> rx.Component:
 
     # Password field with eye toggle
     password_input = rx.vstack(
-        rx.text(t(field["label_key"].to(str)), font_size="11px", color="#999"),
+        rx.text(field["label_key"].to(str), font_size="11px", color="#999"),
         rx.box(
             rx.cond(
                 AIState.channel_cred_show_password,
@@ -1187,14 +1187,27 @@ def _cred_field_input(field: rx.Var) -> rx.Component:
     tooltip_key = field["label_key"].to(str) + "_tooltip"
     label_with_tooltip = rx.tooltip(
         rx.text(
-            t(field["label_key"].to(str)),
+            field["label_key"].to(str),
             font_size="11px", color="#999", cursor="help",
         ),
         content=t(tooltip_key),
     )
+    # Dropdown input (when options are provided)
+    dropdown_input = rx.vstack(
+        label_with_tooltip,
+        rx.select(
+            field["options"].to(str).split(","),
+            value=value,
+            on_change=lambda val: AIState.update_channel_credential([env_key, val]),
+            size="2",
+            width="100%",
+        ),
+        spacing="1",
+        width="100%",
+    )
+
     # Normal text input
     text_input = rx.vstack(
-        # Show tooltip label if tooltip key exists, otherwise plain label
         label_with_tooltip,
         rx.input(
             value=value,
@@ -1210,7 +1223,11 @@ def _cred_field_input(field: rx.Var) -> rx.Component:
     return rx.cond(
         field["is_password"].to(str) == "1",
         password_input,
-        text_input,
+        rx.cond(
+            field["options"].to(str) != "",
+            dropdown_input,
+            text_input,
+        ),
     )
 
 
@@ -1236,7 +1253,7 @@ def channel_credentials_modal() -> rx.Component:
             rx.vstack(
                 # Title: channel name + "Credentials"
                 rx.text(
-                    AIState.channel_credentials_editing.upper() + " Credentials",
+                    AIState.channel_credentials_display_name,
                     font_weight="bold",
                     font_size="16px",
                     color="white",
@@ -1438,29 +1455,31 @@ def plugin_manager_modal() -> rx.Component:
             )
 
         # Allowlist display (compact, under the channel row)
-        allowlist_key = name  # "email", "telegram", "discord"
-        children.append(
-            rx.cond(
-                enabled_var,
-                rx.hstack(
-                    rx.box(width="14px"),
-                    rx.icon("shield", size=12, color="#666"),
-                    rx.text("Allowlist: ", font_size="10px", color="#666"),
-                    rx.text(
-                        AIState.channel_allowlists[allowlist_key],
-                        font_size="10px",
-                        color="#888",
-                        overflow="hidden",
-                        text_overflow="ellipsis",
-                        white_space="nowrap",
-                        max_width="200px",
+        # Only for channels that have allowlist config (not FreeEcho.2 etc.)
+        if name in ("email", "telegram", "discord"):
+            allowlist_key = name
+            children.append(
+                rx.cond(
+                    enabled_var,
+                    rx.hstack(
+                        rx.box(width="14px"),
+                        rx.icon("shield", size=12, color="#666"),
+                        rx.text("Allowlist: ", font_size="10px", color="#666"),
+                        rx.text(
+                            AIState.channel_allowlists[allowlist_key],
+                            font_size="10px",
+                            color="#888",
+                            overflow="hidden",
+                            text_overflow="ellipsis",
+                            white_space="nowrap",
+                            max_width="200px",
+                        ),
+                        spacing="1",
+                        align="center",
+                        width="100%",
                     ),
-                    spacing="1",
-                    align="center",
-                    width="100%",
-                ),
+                )
             )
-        )
 
         row = rx.vstack(*children, spacing="1", width="100%")
         channel_rows.append(row)

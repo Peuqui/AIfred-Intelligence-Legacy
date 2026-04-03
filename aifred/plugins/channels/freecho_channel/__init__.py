@@ -1,0 +1,391 @@
+"""FreeEcho.2 Channel Plugin — WebSocket server for voice terminals.
+
+FreeEcho.2 devices (Echo Dot 2nd Gen with custom firmware) connect via
+WebSocket and send audio after wake word detection. AIfred processes
+the audio (STT → LLM → TTS) and streams the response back.
+
+Protocol:
+  Client → Server:
+    Text:   {"type":"register","room":"wohnzimmer","capabilities":["audio_in","audio_out"]}
+    Text:   {"type":"wake","room":"wohnzimmer"}
+    Binary: Raw PCM audio (16kHz mono int16) after recording
+  Server → Client:
+    Binary: TTS audio (48kHz mono int16) for playback
+    Text:   {"type":"status","message":"processing"}
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import wave
+import io
+import tempfile
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import TYPE_CHECKING
+
+from ....lib.plugin_base import BaseChannel, CredentialField
+
+if TYPE_CHECKING:
+    from ....lib.envelope import InboundMessage, OutboundMessage
+
+# Connected FreeEcho.2 devices: room_name → websocket
+_devices: dict[str, object] = {}
+# Pending TTS responses: room_name → asyncio.Future
+_pending_responses: dict[str, asyncio.Future] = {}
+
+# WebSocket server port
+_DEFAULT_PORT = 9777
+_DEFAULT_PATH = "/ws/freeecho2"
+
+
+class FreeEchoChannel(BaseChannel):
+    """FreeEcho.2 voice terminal channel via WebSocket."""
+
+    # ── Identity ──────────────────────────────────────────────
+
+    @property
+    def name(self) -> str:
+        return "freeecho2"
+
+    @property
+    def display_name(self) -> str:
+        return "FreeEcho.2"
+
+    @property
+    def icon(self) -> str:
+        return "radio"
+
+    @property
+    def always_reply(self) -> bool:
+        return True
+
+    # ── Credentials ───────────────────────────────────────────
+
+    @property
+    def credential_fields(self) -> list[CredentialField]:
+        return [
+            CredentialField(
+                env_key="FREEECHO2_PORT",
+                label_key="freeecho2_cred_port",
+                placeholder="9777",
+            ),
+            CredentialField(
+                env_key="FREEECHO2_TTS_ENGINE",
+                label_key="freeecho2_cred_tts_engine",
+                placeholder="piper",
+                options=["piper", "edge", "xtts", "moss", "espeak"],
+            ),
+            CredentialField(
+                env_key="FREEECHO2_TTS_VOICE",
+                label_key="freeecho2_cred_tts_voice",
+                placeholder="",
+            ),
+        ]
+
+    def is_configured(self) -> bool:
+        return True  # No credentials needed — local WebSocket server
+
+    def apply_credentials(self, values: dict[str, str]) -> None:
+        from ....lib.credential_broker import broker
+        broker.set_runtime("freeecho2", "enabled", "true")
+        port = values.get("FREEECHO2_PORT", str(_DEFAULT_PORT))
+        broker.set_runtime("freeecho2", "port", port)
+        tts_engine = values.get("FREEECHO2_TTS_ENGINE", "piper")
+        if tts_engine:
+            broker.set_runtime("freeecho2", "tts_engine", tts_engine)
+        tts_voice = values.get("FREEECHO2_TTS_VOICE", "de_DE-thorsten-high")
+        if tts_voice:
+            broker.set_runtime("freeecho2", "tts_voice", tts_voice)
+
+    # ── Listener (WebSocket server) ───────────────────────────
+
+    async def listener_loop(self) -> None:
+        """Run WebSocket server for FreeEcho.2 devices."""
+        from ....lib.credential_broker import broker
+
+        port = int(broker.get("freeecho2", "port") or str(_DEFAULT_PORT))
+
+        try:
+            from aiohttp import web
+        except ImportError:
+            self.channel_log("aiohttp not installed, FreeEcho.2 disabled", "error")
+            return
+
+        app = web.Application()
+        app.router.add_get(_DEFAULT_PATH, self._handle_ws)
+
+        runner = web.AppRunner(app)
+        await runner.setup()
+        site = web.TCPSite(runner, "0.0.0.0", port)
+        await site.start()
+        self.channel_log(f"WebSocket server listening on 0.0.0.0:{port}{_DEFAULT_PATH}")
+
+        try:
+            # Keep running until cancelled
+            while True:
+                await asyncio.sleep(3600)
+        except asyncio.CancelledError:
+            self.channel_log("Shutting down WebSocket server")
+        finally:
+            await runner.cleanup()
+
+    async def _handle_ws(self, request: object) -> object:
+        """Handle a single FreeEcho.2 WebSocket connection."""
+        from aiohttp import web, WSMsgType
+
+        ws = web.WebSocketResponse()
+        await ws.prepare(request)
+
+        room = "unknown"
+        self.channel_log(f"FreeEcho.2 connection from {request.remote}")
+
+        try:
+            async for msg in ws:
+                if msg.type == WSMsgType.TEXT:
+                    await self._handle_text(ws, msg.data, room)
+                    # Update room from register message
+                    try:
+                        data = json.loads(msg.data)
+                        if data.get("type") == "register":
+                            room = data.get("room", room)
+                            _devices[room] = ws
+                            self.channel_log(f"FreeEcho.2 registered: room={room}")
+                    except json.JSONDecodeError:
+                        pass
+
+                elif msg.type == WSMsgType.BINARY:
+                    # Audio data from device
+                    await self._handle_audio(ws, msg.data, room)
+
+                elif msg.type in (WSMsgType.CLOSE, WSMsgType.ERROR):
+                    break
+
+        except Exception as e:
+            self.channel_log(f"WebSocket error ({room}): {e}", "error")
+        finally:
+            if room in _devices and _devices[room] is ws:
+                del _devices[room]
+            self.channel_log(f"FreeEcho.2 disconnected: room={room}")
+
+        return ws
+
+    async def _handle_text(self, ws: object, data: str, room: str) -> None:
+        """Handle text message from FreeEcho.2 device."""
+        try:
+            msg = json.loads(data)
+        except json.JSONDecodeError:
+            return
+
+        msg_type = msg.get("type")
+
+        if msg_type == "register":
+            self.channel_log(f"[FreeEcho.2 {room}] Register: {msg}")
+
+        elif msg_type == "wake":
+            self.channel_log(f"[FreeEcho.2 {room}] Wake word detected")
+            # Pre-signal: could trigger model warmup here
+            # For now just acknowledge
+            await ws.send_str(json.dumps({"type": "status", "message": "ready"}))
+
+    async def _handle_audio(self, ws: object, audio_data: bytes, room: str) -> None:
+        """Handle binary audio from FreeEcho.2 device.
+
+        Audio is raw PCM: 16kHz, mono, int16 (little-endian).
+        """
+        from ....lib.envelope import InboundMessage
+        from ....lib.message_processor import process_inbound
+
+        num_samples = len(audio_data) // 2
+        duration = num_samples / 16000.0
+        self.channel_log(f"[FreeEcho.2 {room}] Audio received: {num_samples} samples ({duration:.1f}s)")
+
+        # Convert raw PCM to WAV for STT
+        wav_buffer = io.BytesIO()
+        with wave.open(wav_buffer, "wb") as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(16000)
+            wf.writeframes(audio_data)
+        wav_bytes = wav_buffer.getvalue()
+
+        # Save temp WAV for STT
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False, dir="/tmp") as f:
+            f.write(wav_bytes)
+            wav_path = f.name
+
+        # Heartbeat task — sends heartbeat every 5s while processing
+        heartbeat_running = True
+
+        async def _heartbeat():
+            while heartbeat_running:
+                try:
+                    await ws.send_str(json.dumps({"type": "heartbeat"}))
+                except Exception:
+                    break
+                await asyncio.sleep(5)
+
+        try:
+            # Run STT
+            text = await self._run_stt(wav_path)
+            if not text:
+                self.channel_log(f"[FreeEcho.2 {room}] STT returned empty text", "warning")
+                await ws.send_str(json.dumps({"type": "done", "reason": "stt_empty"}))
+                return
+
+            self.channel_log(f"[FreeEcho.2 {room}] STT: {text}")
+
+            # Start heartbeat while LLM processes
+            await ws.send_str(json.dumps({"type": "processing"}))
+            heartbeat_task = asyncio.create_task(_heartbeat())
+
+            # Create inbound message and process through AIfred engine
+            inbound = InboundMessage(
+                channel="freeecho2",
+                channel_id=room,
+                sender=room,
+                text=text,
+                timestamp=datetime.now(timezone.utc),
+                metadata={"wav_path": wav_path, "room": room},
+            )
+
+            _devices[room] = ws
+
+            # process_inbound calls send_reply automatically (via auto_reply)
+            await process_inbound(inbound)
+
+            # Stop heartbeat
+            heartbeat_running = False
+            heartbeat_task.cancel()
+
+            # Signal client: all done, go back to IDLE
+            await ws.send_str(json.dumps({"type": "done"}))
+
+        except Exception as e:
+            self.channel_log(f"[FreeEcho.2 {room}] Pipeline error: {e}", "error")
+            heartbeat_running = False
+            try:
+                await ws.send_str(json.dumps({"type": "done", "reason": "error"}))
+            except Exception:
+                pass
+        finally:
+            Path(wav_path).unlink(missing_ok=True)
+
+    async def _run_stt(self, wav_path: str) -> str:
+        """Run Speech-to-Text on a WAV file."""
+        from ....lib.audio_processing import transcribe_audio, get_whisper_model
+
+        model = get_whisper_model()
+        if not model:
+            self.channel_log("Whisper model not loaded", "error")
+            return ""
+
+        loop = asyncio.get_event_loop()
+        text, stt_time = await loop.run_in_executor(None, transcribe_audio, wav_path, model, "de")
+        self.channel_log(f"STT: '{text[:80]}' ({stt_time:.1f}s)")
+        return text or ""
+
+    # ── Reply ─────────────────────────────────────────────────
+
+    async def send_reply(self, outbound: "OutboundMessage", original: "InboundMessage") -> None:
+        """Send TTS audio back to the FreeEcho.2 device."""
+        room = outbound.channel_id
+        ws = _devices.get(room)
+        if not ws:
+            self.channel_log(f"[FreeEcho.2 {room}] No connected device for reply", "warning")
+            return
+
+        # Generate TTS audio (agent-specific voice if configured)
+        agent = original.target_agent if original else "aifred"
+        tts_path = await self._run_tts(outbound.text, agent=agent)
+        if not tts_path:
+            self.channel_log(f"[FreeEcho.2 {room}] TTS failed", "error")
+            return
+
+        # Read TTS audio and send as binary
+        # The device expects 48kHz mono int16 PCM
+        pcm_data = await self._convert_to_pcm(tts_path, 48000)
+        if pcm_data:
+            self.channel_log(f"[FreeEcho.2 {room}] Sending TTS: {len(pcm_data)} bytes ({len(pcm_data)/96000:.1f}s)")
+            await ws.send_str(json.dumps({"type": "audio_start", "size": len(pcm_data)}))
+            await ws.send_bytes(pcm_data)
+        else:
+            self.channel_log(f"[FreeEcho.2 {room}] TTS conversion failed", "error")
+
+        Path(tts_path).unlink(missing_ok=True)
+
+    async def _run_tts(self, text: str, agent: str = "aifred") -> str | None:
+        """Generate TTS audio file from text. Returns absolute file path.
+
+        Uses the FreeEcho.2 plugin's TTS engine setting combined with
+        per-agent voice configuration from TTS_AGENT_VOICE_DEFAULTS.
+        Independent of the browser UI TTS toggle.
+        """
+        from ....lib.credential_broker import broker
+        from ....lib.config import PROJECT_ROOT, TTS_AGENT_VOICE_DEFAULTS
+
+        # Engine from plugin settings
+        engine = broker.get("freeecho2", "tts_engine") or "piper"
+
+        # Voice: explicit override from plugin settings, or agent config, or aifred default
+        override_voice = broker.get("freeecho2", "tts_voice")
+        agent_voices = TTS_AGENT_VOICE_DEFAULTS.get(engine, {})
+        agent_cfg = agent_voices.get(agent) or agent_voices.get("aifred", {})
+        voice = override_voice if override_voice else agent_cfg.get("voice", "Deutsch (Thorsten)")
+        speed = float(agent_cfg.get("speed", "1.0").replace("x", ""))
+
+        self.channel_log(f"TTS: engine={engine}, agent={agent}, voice={voice}, speed={speed}")
+
+        try:
+            from ....lib.audio_processing import generate_tts
+            url_path = await generate_tts(text, voice, speed, engine, agent=agent)
+            if not url_path:
+                return None
+            # Convert URL path (/_upload/tts_audio/xxx.wav) to absolute file path
+            if url_path.startswith("/_upload/"):
+                return str(PROJECT_ROOT / "data" / url_path.removeprefix("/_upload/"))
+            return url_path
+        except Exception as e:
+            self.channel_log(f"TTS ({engine}) failed: {e}", "error")
+            return None
+
+    async def _convert_to_pcm(self, audio_path: str, target_rate: int) -> bytes | None:
+        """Convert audio file to raw PCM (mono, int16, target_rate)."""
+        # Use ffmpeg to convert any audio format to raw PCM
+        cmd = [
+            "ffmpeg", "-y", "-i", audio_path,
+            "-ar", str(target_rate),
+            "-ac", "1",
+            "-f", "s16le",
+            "-acodec", "pcm_s16le",
+            "pipe:1",
+        ]
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await proc.communicate()
+            if proc.returncode == 0:
+                return stdout
+            self.channel_log(f"ffmpeg error: {stderr.decode()[:200]}", "error")
+        except FileNotFoundError:
+            self.channel_log("ffmpeg not found", "error")
+        return None
+
+    # ── Context ───────────────────────────────────────────────
+
+    def build_context(self, message: "InboundMessage") -> str:
+        """Format message for LLM context."""
+        room = message.metadata.get("room", "unknown")
+        return (
+            f"Sprachnachricht von FreeEcho.2 Gerät im Raum '{room}'. "
+            f"Der User hat gesprochen und die Sprache wurde per STT transkribiert. "
+            f"Antworte kurz und prägnant — die Antwort wird per TTS vorgelesen."
+        )
+
+
+# Module-level singleton — auto-discovered by plugin registry
+FreeEchoChannel_instance = FreeEchoChannel()

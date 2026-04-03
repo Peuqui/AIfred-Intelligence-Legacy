@@ -2133,6 +2133,14 @@ Pull requests are welcome! For major changes, please open an issue first.
 
 ---
 
+## ☕ Support
+
+If you like AIfred, consider buying me a coffee:
+
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/peuqui)
+
+---
+
 ## Star History
 
 [![Star History Chart](https://api.star-history.com/svg?repos=Peuqui/AIfred-Intelligence&type=Date)](https://star-history.com/#Peuqui/AIfred-Intelligence&Date)

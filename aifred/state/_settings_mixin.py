@@ -29,7 +29,8 @@ class SettingsMixin(rx.State, mixin=True):
 
     # Generic Credentials Modal (one modal, dynamic fields per channel)
     channel_credentials_modal_open: bool = False
-    channel_credentials_editing: str = ""  # Which channel we're editing
+    channel_credentials_editing: str = ""  # Which channel we're editing (internal name)
+    channel_credentials_display_name: str = ""  # Display name for modal title
     channel_credential_values: dict[str, str] = {}  # env_key → value
     channel_credential_fields: list[dict[str, str]] = []  # Rendered field descriptors
     channel_cred_show_password: bool = False  # Eye toggle
@@ -555,20 +556,26 @@ class SettingsMixin(rx.State, mixin=True):
             return
 
         # Pre-fill current values from environment
+        from ..lib.i18n import t as _t
+        lang = self.ui_language  # type: ignore[attr-defined]
         values: dict[str, str] = {}
         field_descriptors: list[dict[str, str]] = []
         for field in fields:
             values[field.env_key] = os.environ.get(field.env_key, field.default)
             field_descriptors.append({
                 "env_key": field.env_key,
-                "label_key": field.label_key,
+                "label_key": _t(field.label_key, lang=lang),
                 "placeholder": field.placeholder,
                 "is_password": "1" if field.is_password else "",
                 "group": field.group,
                 "width_ratio": str(field.width_ratio),
+                "options": ",".join(field.options) if field.options else "",
             })
 
+        display = plugin.display_name if plugin else channel_name.capitalize()
+        suffix = _t("cred_title_suffix", lang=lang)
         self.channel_credentials_editing = channel_name
+        self.channel_credentials_display_name = f"{display} — {suffix}"
         self.channel_credential_values = values
         self.channel_credential_fields = field_descriptors
         self.channel_cred_show_password = False
@@ -680,6 +687,7 @@ class SettingsMixin(rx.State, mixin=True):
             "email": broker.get("email", "allowed_senders") or "-",
             "telegram": broker.get("telegram", "allowed_users") or "-",
             "discord": broker.get("discord", "channel_ids") or "-",
+            "freeecho2": "",
         }
         self.plugin_manager_open = True
 
