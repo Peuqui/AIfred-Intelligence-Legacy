@@ -1999,3 +1999,11 @@ Pull Requests sind willkommen! Für größere Änderungen bitte erst ein Issue �
 ## 📄 License
 
 MIT License - siehe [LICENSE](LICENSE) file
+
+---
+
+## ☕ Unterstuetzen
+
+Wenn dir dieses Projekt gefaellt, kannst du mich unterstuetzen:
+
+<a href="https://ko-fi.com/peuqui" target="_blank"><img src="https://storage.ko-fi.com/cdn/kofi2.png?v=6" alt="Unterstuetze mich auf Ko-fi" height="50"></a>

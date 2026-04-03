@@ -2140,3 +2140,11 @@ Pull requests are welcome! For major changes, please open an issue first.
 ## 📄 License
 
 MIT License - see [LICENSE](LICENSE) file
+
+---
+
+## ☕ Support
+
+If you find this project useful, consider supporting me:
+
+<a href="https://ko-fi.com/peuqui" target="_blank"><img src="https://storage.ko-fi.com/cdn/kofi2.png?v=6" alt="Support me on Ko-fi" height="50"></a>
