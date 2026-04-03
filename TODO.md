@@ -78,7 +78,7 @@ Problem: `tinycap` kann S24_3LE nicht oeffnen.
 - `sound/soc/mediatek/mt_soc_audio_8163_amzn/amzn-spi-pcm/` — SPI-PCM-Treiber
 - `sound/soc/codecs/tlv320aic3101.c` — ADC-Treiber
 - `sound/soc/mediatek/mt_soc_audio_8163_amzn/mt_soc_machine.c` — Machine Driver
-**Mixer-Dump gespeichert:** `data/tests/tinymix_dump.txt`
+**Mixer-Dump gespeichert:** `data/FreeEchoDot2/docs/tinymix_dump.txt`
 
 #### Phase 2: AIfred Puck-Client (Python auf Termux)
 - [ ] openWakeWord fuer Wake Word Detection (lokal auf ARM Cortex-A53)
