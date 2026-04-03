@@ -117,3 +117,5 @@ docker/f5-tts/
 scripts/tts_compare.py
 
 # Agent Prompts: all tracked (agents are created via Agent Editor)
+tools/echo_dot/tflite/lib/
+tools/echo_dot/tflite/*.tflite
