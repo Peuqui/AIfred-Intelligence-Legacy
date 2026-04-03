@@ -33,7 +33,10 @@ GitHub-Projekt: github.com/Peuqui/FreeEcho.2 (noch nicht gepusht)
 - [x] WiFi Auto-Boot (Ramdisk gepatcht: conn_launcher aktiviert, Boot-Script deployed)
 - [x] LED Ring steuerbar (IS31FL3236, led_ring Tool mit color/spin/pulse/progress)
 - [x] Speaker Playback funktioniert (TLV320AIC3204, Device 23, tinyplay)
-- [ ] Alexa-Services deaktivieren / unnoetige Prozesse stoppen
+- [x] Alexa-Services deaktiviert (Boot-Script stoppt unnoetige Services, ~393MB frei)
+- [ ] ledcontroller durch eigene Animationen ersetzen (Kernel boot_anim + led_ring Tool)
+      → dann Amazon-Binary komplett entfernen, volle Kontrolle ueber LED-Ring
+- [x] Audio Playback funktioniert (Device 23, 48kHz, 16kHz via Resample)
 - [ ] Zygote/system_server: NICHT NOETIG fuer WiFi! Optional fuer andere Android-Features
 
 #### Phase 1.5: Audio-Kette — FUNKTIONIERT!
