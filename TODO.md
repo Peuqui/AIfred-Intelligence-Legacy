@@ -17,25 +17,67 @@ Pipeline: Inbound Sanitization → Tier-Check → Tool-Aufruf → Output-Sanitiz
 
 ---
 
-## Echo Dot 2 Puck-Mod / Raumintercom
+## Echo Dot 2 Puck-Mod / Raumintercom (FreeEchoDot2)
 
 2x Echo Dot Gen 2 ("biscuit") bestellt (~15-18 EUR gesamt).
 Hardware: MediaTek MT8163V (Cortex-A53 Quad 1.5GHz), 512MB RAM, 4GB eMMC,
-7-Mikrofon-Array, TI TLV320DAC3203 Audio-Codec, Fire OS (Android 5.1).
-
-Architektur-Entscheidung: Fire OS behalten + rooten (NICHT postmarketOS).
-Vorteil: Alle Hardware-Treiber (Mikrofon-Array, Audio-Codec, WiFi) bleiben erhalten.
-Eigene Python-App auf Termux als Puck-Client.
+7-Mikrofon-Array, TI TLV320AIC3101 Audio-Codecs, Fire OS (Android 5.1).
+GitHub-Projekt: github.com/Peuqui/FreeEcho.2 (noch nicht gepusht)
 
 #### Phase 1: Root + Alexa deaktivieren
-- [ ] Root via amonet-biscuit (persistent/untethered, Preloader-Patch in eMMC)
-  - Geraet oeffnen, UART-Testpads kurzschliessen fuer Download-Modus
-  - amonet Python-Script → Preloader patchen → TWRP flashen → Magisk
-  - GitHub: k4y0z/amonet-biscuit
-- [ ] OTA-Updates blockieren (DNS/hosts/iptables) — KRITISCH
-- [ ] Alexa-Services deaktivieren (pm disable):
-  - com.amazon.dee.app, com.amazon.avs, com.amazon.device.sync, com.amazon.ota.forced
-- [ ] Termux installieren (ADB sideload)
+- [x] Root via amonet-biscuit (persistent/untethered, Preloader-Patch in eMMC)
+- [x] OTA-Updates blockieren (f1r30s.zip, hosts-Datei gepatcht)
+- [x] ADB-Zugang hergestellt (Device: G090LF1072270LT0)
+- [x] SELinux auf Permissive (Boot-Image cmdline Patch, funktioniert)
+- [x] WiFi manuell funktioniert (conn_launcher war disabled, jetzt geloest!)
+- [x] LED Ring steuerbar (IS31FL3236, nach ledcontroller-Stop)
+- [ ] WiFi Auto-Boot (Ramdisk patchen: conn_launcher aktivieren, Boot-Script anpassen)
+- [ ] Alexa-Services deaktivieren (pm disable)
+- [ ] Zygote/system_server: NICHT NOETIG fuer WiFi! Optional fuer andere Android-Features
+
+#### Phase 1.5: Audio-Kette — FUNKTIONIERT!
+
+**Audio-Kette vollstaendig analysiert und funktionsfaehig (2026-04-02):**
+```
+Mikrofone (7+1) → 4x TLV320AIC3101 (I2C 0x18-0x1B) → I2S/TDM → FPGA (R3018, SPI) → CPU
+```
+
+Der FPGA ("dough") sitzt ZWISCHEN ADCs und SoC. Daten gehen ueber SPI,
+NICHT ueber den MediaTek AFE. Deshalb liefern Device 13 und alle
+AFE-Devices nur Nullen — die sind am falschen Bus.
+
+| Device | Name | Datenquelle | Funktioniert? |
+|--------|------|-------------|---------------|
+| 13 | TDM_Debug_CAPTURE | MT8163 interner ADDA ADC | NEIN (falsche Quelle) |
+| 16 | I2S0_AWB_CAPTURE | I2S0 Pin-Input | NEIN (FPGA nicht an I2S0) |
+| 24 | AMZN_SPI_Capture | SPI → FPGA → TLV320 ADCs | JA (einzig richtiger Pfad) |
+
+**Device 24 ist der einzige Weg.** Format: S24_3LE, 9ch, 16kHz.
+Problem: `tinycap` kann S24_3LE nicht oeffnen.
+
+**Was bestaetigt ist:**
+- SPI-Device `spi32766.0` aktiv, Treiber `spi-audio-pltfm` gebunden
+- 4 TLV320 ADCs auf I2C Bus 0 erkannt (0x18, 0x19, 0x1a, 0x1b)
+- Kernel-Treiber `amzn-mt-spi-pcm.c` ist geladen (Device 24 existiert)
+- Alle Mixer-Controls via tinymix steuerbar
+
+**Naechste Schritte:**
+1. **S24_3LE-faehiges Capture-Tool** auf Echo Dot bringen:
+   - Option A: `arecord` (ALSA utils) cross-kompilieren fuer ARM
+   - Option B: Minimales C-Tool basierend auf tinyalsa mit S24_3LE Support
+   - Option C: Android AudioRecord API (Java/NDK App)
+2. **FPGA-Status pruefen** — beim Boot-Log nach "FPGA Revision" suchen
+   (dmesg Buffer rotiert schnell, evtl. `logcat` oder persistent logging)
+3. **MCLK pruefen** — TLV320 braucht 9.6MHz MCLK, aktiviert ueber
+   `AudDrv_GPIO_MCLK_Select()` im Kernel
+4. **Falls Device 24 trotzdem Nullen liefert:** FPGA-Firmware fehlt oder
+   nicht geladen. Firmware-Datei suchen in `/system/` oder `/vendor/`
+
+**Source-Code:** `/tmp/echo_src/kernel/mediatek/mt8163/3.18/`
+- `sound/soc/mediatek/mt_soc_audio_8163_amzn/amzn-spi-pcm/` — SPI-PCM-Treiber
+- `sound/soc/codecs/tlv320aic3101.c` — ADC-Treiber
+- `sound/soc/mediatek/mt_soc_audio_8163_amzn/mt_soc_machine.c` — Machine Driver
+**Mixer-Dump gespeichert:** `data/tests/tinymix_dump.txt`
 
 #### Phase 2: AIfred Puck-Client (Python auf Termux)
 - [ ] openWakeWord fuer Wake Word Detection (lokal auf ARM Cortex-A53)
