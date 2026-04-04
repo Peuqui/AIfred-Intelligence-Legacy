@@ -6,9 +6,9 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
-from ...lib.function_calling import Tool
-from ...lib.security import TIER_READONLY
-from ...lib.plugin_base import CredentialField, PluginContext
+from ....lib.function_calling import Tool
+from ....lib.security import TIER_READONLY
+from ....lib.plugin_base import CredentialField, PluginContext
 
 
 # DeepL supported languages (subset of most common ones for description)
@@ -70,7 +70,7 @@ class TranslatorPlugin:
         ]
 
     def is_available(self) -> bool:
-        from ...lib.credential_broker import broker
+        from ....lib.credential_broker import broker
         return broker.is_set("deepl", "api_key")
 
     def get_tools(self, ctx: PluginContext) -> list[Tool]:
@@ -78,8 +78,8 @@ class TranslatorPlugin:
         async def _translate(text: str, target_lang: str, source_lang: str = "") -> str:
             """Translate text using the DeepL API."""
             import aiohttp
-            from ...lib.credential_broker import broker
-            from ...lib.logging_utils import log_message
+            from ....lib.credential_broker import broker
+            from ....lib.logging_utils import log_message
 
             api_key = broker.get("deepl", "api_key")
             if not api_key:

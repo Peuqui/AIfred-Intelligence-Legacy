@@ -38,7 +38,8 @@ async def perform_agent_research(
     detected_language: Optional[str] = None,
     pre_generated_queries: Optional[List[str]] = None,
     volatility: Optional[str] = None,  # From Automatik-LLM (NOCACHE/DAILY/etc.)
-    automatik_num_ctx: Optional[int] = None
+    automatik_num_ctx: Optional[int] = None,
+    agent: str = "aifred",
 ) -> AsyncIterator[Dict]:
     """
     Agent research with query optimization and parallel web scraping
@@ -108,6 +109,7 @@ async def perform_agent_research(
         detected_language=detected_language or "de",
         automatik_num_ctx=automatik_num_ctx,
         backend_type=backend_type,
+        agent=agent,
     ):
         if item["type"] == "result":
             cache_handled = True
@@ -286,6 +288,7 @@ async def perform_agent_research(
         detected_language=detected_language,
         volatility=volatility,  # From Automatik-LLM decision
         backend_type=backend_type,
+        agent=agent,
     ):
         yield item
 

@@ -74,11 +74,22 @@ plugin = MyPlugin()
 
 Receive and send messages via external services (email, Discord, Telegram, etc.).
 
+Each channel plugin is a **self-contained directory**:
+
+```
+aifred/plugins/channels/my_channel/
+    __init__.py     # Plugin code (BaseChannel subclass + module-level instance)
+    i18n.json       # Translations for credential labels (min. DE/EN)
+    settings.json   # Auto-generated: non-secret settings (ports, hosts, etc.)
+```
+
+**Delete the folder = plugin is completely gone.** No leftover entries in `.env` or central `i18n.py`.
+
 **Required interface** (`BaseChannel` ABC in `aifred/lib/plugin_base.py`):
 
 ```python
-from aifred.lib.plugin_base import BaseChannel, CredentialField
-from aifred.lib.credential_broker import broker
+from ....lib.plugin_base import BaseChannel, CredentialField
+from ....lib.credential_broker import broker
 
 class MyChannel(BaseChannel):
     # ── Identity (required) ──────────────────────────
@@ -95,7 +106,10 @@ class MyChannel(BaseChannel):
     @property
     def credential_fields(self) -> list[CredentialField]:
         return [
+            # Secrets → .env (is_password=True implies is_secret=True)
             CredentialField(env_key="MY_TOKEN", label_key="my_token_label", is_password=True),
+            # Config → plugin settings.json (is_secret=False, the default)
+            CredentialField(env_key="MY_PORT", label_key="my_port_label", placeholder="8080"),
         ]
 
     def is_configured(self) -> bool:
@@ -119,7 +133,7 @@ class MyChannel(BaseChannel):
     # ── Context (required) ───────────────────────────
     def build_context(self, message) -> str:
         """Build LLM prompt context. Use prompts/ files, not hardcoded text."""
-        from aifred.lib.prompt_loader import load_prompt
+        from ....lib.prompt_loader import load_prompt
         return load_prompt("shared/channel_my_channel", sender=message.sender, text=message.text)
 
     # ── Optional ─────────────────────────────────────
@@ -135,14 +149,67 @@ MyChannel_instance = MyChannel()
 ```
 
 **Key points:**
-- File goes in `aifred/plugins/channels/`
+- Plugin lives in `aifred/plugins/channels/{name}_channel/`
 - Must expose a module-level `BaseChannel` instance
 - `listener_loop()` must run indefinitely and handle `asyncio.CancelledError`
 - `build_context()` should load prompts from `prompts/` directory
-- `credential_fields` defines the Settings UI form (rendered dynamically)
 - **Credentials via `broker.get()`**, never via `os.environ` or `config.py` globals
 - Add credential mapping to `credential_broker.py: _CREDENTIAL_MAP`
 - Channel tools MUST use named tier constants (typically `TIER_COMMUNICATE`)
+
+## Credential Storage: Secrets vs Settings
+
+`CredentialField` has an `is_secret` flag that controls where values are stored:
+
+| `is_secret` | Storage | Example |
+|-------------|---------|---------|
+| `True` | `.env` file + `os.environ` | Passwords, API keys, bot tokens |
+| `False` (default) | Plugin's `settings.json` | Ports, hosts, paths, engine selections |
+
+`is_password=True` automatically sets `is_secret=True`.
+
+**At boot:** Plugin's `settings.json` values are loaded into `os.environ` by the registry, so `credential_broker` and `is_configured()` work seamlessly.
+
+**Migration:** When a plugin is first loaded and has no `settings.json`, existing `.env` values for non-secret fields are automatically migrated.
+
+## Plugin i18n
+
+Each channel plugin has its own `i18n.json` for credential labels and tooltips:
+
+```json
+{
+  "my_token_label": {
+    "de": "API Token",
+    "en": "API Token"
+  },
+  "my_port_label": {
+    "de": "Server Port",
+    "en": "Server Port"
+  },
+  "my_port_label_tooltip": {
+    "de": "Port auf dem der Server lauscht.",
+    "en": "Port the server listens on."
+  }
+}
+```
+
+**Convention:** Tooltip keys are `{label_key}_tooltip`.
+
+The plugin's `translate(key, lang)` method looks up translations from `i18n.json`. The Settings modal tries plugin i18n first, then falls back to central `aifred/lib/i18n.py`.
+
+## BaseChannel Helper Methods
+
+Every channel plugin inherits these from `BaseChannel`:
+
+| Method | Description |
+|--------|-------------|
+| `load_settings()` | Read plugin's `settings.json` |
+| `save_settings(dict)` | Write plugin's `settings.json` |
+| `get_setting(key)` | Get a single setting value |
+| `set_setting(key, value)` | Set a single setting value |
+| `load_i18n()` | Read plugin's `i18n.json` |
+| `translate(key, lang)` | Translate a key using plugin's `i18n.json` |
+| `channel_log(msg, level)` | Log to debug-log + stderr (journalctl) |
 
 ## Debug Messages
 
@@ -159,18 +226,6 @@ Messages automatically go to:
 - Log file (`data/logs/aifred_debug.log`) — always
 - Browser debug console — if browser session is active
 - Session file — if `session_scope` is active (Hub path)
-
-## i18n
-
-All user-facing text should use the i18n system:
-
-```python
-from aifred.lib.i18n import t
-label = t("my_plugin_label", lang=ctx.lang)
-```
-
-Add keys to both language dicts in `aifred/lib/i18n.py`.
-Prompt templates go in `prompts/de/` and `prompts/en/`.
 
 ## Enabling / Disabling
 
@@ -202,8 +257,8 @@ Channels with `always_reply = True` (e.g. Discord) only show the main toggle.
 ```
 aifred/
 ├── lib/
-│   ├── plugin_base.py         # Interfaces (BaseChannel, ToolPlugin, PluginContext)
-│   ├── plugin_registry.py     # Discovery, enable/disable, list
+│   ├── plugin_base.py         # Interfaces (BaseChannel, ToolPlugin, PluginContext, CredentialField)
+│   ├── plugin_registry.py     # Discovery, enable/disable, list, migration
 │   ├── security.py            # Tier constants, filter, sanitize, audit
 │   ├── credential_broker.py   # Centralized credential management
 │   ├── debug_bus.py           # debug(), session_scope, flush
@@ -211,10 +266,19 @@ aifred/
 └── plugins/
     ├── channels/
     │   ├── email_channel/     # E-Mail (IMAP/SMTP + email tools)
-    │   └── discord.py         # Discord (bot + discord_send tool)
+    │   │   ├── __init__.py
+    │   │   └── i18n.json
+    │   ├── discord_channel/   # Discord (bot + discord_send tool)
+    │   │   ├── __init__.py
+    │   │   └── i18n.json
+    │   ├── telegram_channel/  # Telegram (bot + telegram_send tool)
+    │   │   ├── __init__.py
+    │   │   └── i18n.json
+    │   └── freeecho2_channel/ # FreeEcho.2 voice terminal (WebSocket)
+    │       ├── __init__.py
+    │       └── i18n.json
     ├── tools/
     │   ├── calculator.py      # calculate (tier 0)
-    │   ├── documents.py       # read_document (tier 0)
     │   ├── epim/              # EPIM database CRUD (tier 0/2/3)
     │   ├── research.py        # web_search, web_fetch (tier 0)
     │   └── sandbox.py         # execute_code (tier 2)

@@ -9,9 +9,9 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
-from ...lib.function_calling import Tool
-from ...lib.security import TIER_WRITE_DATA, TIER_READONLY
-from ...lib.plugin_base import PluginContext
+from ....lib.function_calling import Tool
+from ....lib.security import TIER_WRITE_DATA, TIER_READONLY
+from ....lib.plugin_base import PluginContext
 
 
 @dataclass
@@ -26,7 +26,7 @@ class AudioPlayerPlugin:
 
         async def _play(file_path: str) -> str:
             """Play an audio file on the local system."""
-            from ...lib.audio_manager import audio_manager
+            from ....lib.audio_manager import audio_manager
             ok = audio_manager.play(file_path)
             if ok:
                 return json.dumps({"success": True, "playing": file_path})
@@ -34,13 +34,13 @@ class AudioPlayerPlugin:
 
         async def _stop() -> str:
             """Stop current audio playback."""
-            from ...lib.audio_manager import audio_manager
+            from ....lib.audio_manager import audio_manager
             stopped = audio_manager.stop()
             return json.dumps({"success": True, "stopped": stopped})
 
         async def _status() -> str:
             """Get current audio playback status."""
-            from ...lib.audio_manager import audio_manager
+            from ....lib.audio_manager import audio_manager
             return json.dumps(audio_manager.status())
 
         return [

@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Optional, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
+    from pathlib import Path
     from ..lib.envelope import InboundMessage, OutboundMessage
     from ..lib.function_calling import Tool
 
@@ -71,13 +72,18 @@ class CredentialField:
 
     If placeholder is set but default is not, placeholder is used as default.
     This prevents the UI showing a hint that looks like a value but saves empty.
+
+    Storage:
+        is_secret=True  → stored in .env (passwords, tokens, API keys)
+        is_secret=False → stored in plugin's settings.json (ports, paths, engines)
     """
 
-    env_key: str            # Environment variable name
+    env_key: str            # Environment variable name (also used as settings.json key)
     label_key: str          # i18n key for the label
     placeholder: str = ""
     default: str = ""
     is_password: bool = False
+    is_secret: bool = False  # True = .env, False = plugin settings.json
     width_ratio: int = 1    # Relative width in a row
     group: str = ""         # Group fields into one hstack
     options: list[tuple[str, str]] | None = None  # If set, render as dropdown: [(value, label), ...]
@@ -85,10 +91,76 @@ class CredentialField:
     def __post_init__(self) -> None:
         if self.placeholder and not self.default:
             self.default = self.placeholder
+        # Passwords are always secrets
+        if self.is_password:
+            self.is_secret = True
 
 
 class BaseChannel(ABC):
     """Abstract base class for all message channel plugins."""
+
+    # ── Plugin Settings (settings.json in plugin directory) ────
+
+    def _settings_path(self) -> "Path":
+        """Path to this plugin's settings.json."""
+        from pathlib import Path
+        return Path(__file__).parent.parent / "plugins" / "channels" / f"{self.name}_channel" / "settings.json"
+
+    def load_settings(self) -> dict[str, str]:
+        """Load plugin settings from settings.json. Returns empty dict if not found."""
+        import json
+        path = self._settings_path()
+        if path.exists():
+            with open(path, "r", encoding="utf-8") as f:
+                data: dict[str, str] = json.load(f)
+                return data
+        return {}
+
+    def save_settings(self, settings: dict[str, str]) -> None:
+        """Save plugin settings to settings.json."""
+        import json
+        path = self._settings_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(settings, f, indent=2, ensure_ascii=False)
+
+    def get_setting(self, key: str) -> str:
+        """Get a single setting value. Returns empty string if not set."""
+        return self.load_settings().get(key, "")
+
+    def set_setting(self, key: str, value: str) -> None:
+        """Set a single setting value (read-modify-write)."""
+        settings = self.load_settings()
+        settings[key] = value
+        self.save_settings(settings)
+
+    # ── Plugin i18n (i18n.json in plugin directory) ────────────
+
+    def _i18n_path(self) -> "Path":
+        """Path to this plugin's i18n.json."""
+        from pathlib import Path
+        return Path(__file__).parent.parent / "plugins" / "channels" / f"{self.name}_channel" / "i18n.json"
+
+    def load_i18n(self) -> dict[str, dict[str, str]]:
+        """Load plugin translations from i18n.json.
+
+        Format: {"key": {"de": "Deutsch", "en": "English"}, ...}
+        """
+        import json
+        path = self._i18n_path()
+        if path.exists():
+            with open(path, "r", encoding="utf-8") as f:
+                data: dict[str, dict[str, str]] = json.load(f)
+                return data
+        return {}
+
+    def translate(self, key: str, lang: str = "de") -> str:
+        """Translate a key using this plugin's i18n.json. Falls back to key itself."""
+        translations = self.load_i18n()
+        entry = translations.get(key)
+        if entry:
+            return entry.get(lang, entry.get("de", key))
+        return key
 
     @property
     @abstractmethod
@@ -160,6 +232,43 @@ class BaseChannel(ABC):
         from .logging_utils import log_message
         log_message(msg, level)
         print(f"[{self.name}] {msg}", file=sys.stderr, flush=True)
+
+    def migrate_from_env(self) -> None:
+        """One-time migration: move non-secret .env entries to plugin settings.json.
+
+        Runs at plugin discovery. If settings.json already exists, migration is skipped.
+        Reads non-secret credential fields from os.environ and writes them to settings.json.
+        """
+        import os
+        path = self._settings_path()
+        if path.exists():
+            return  # Already migrated
+
+        settings: dict[str, str] = {}
+        for field in self.credential_fields:
+            if field.is_secret:
+                continue
+            val = os.environ.get(field.env_key, "")
+            if val:
+                settings[field.env_key] = val
+
+        if settings:
+            self.save_settings(settings)
+            from .logging_utils import log_message
+            log_message(f"Plugin '{self.name}': migrated {len(settings)} settings from .env to settings.json")
+
+    def load_settings_to_env(self) -> None:
+        """Load plugin settings.json into os.environ at boot time.
+
+        Ensures non-secret config values (ports, hosts, etc.) are available
+        to credential_broker and is_configured() after restart.
+        Runs at plugin discovery, after migration.
+        """
+        import os
+        settings = self.load_settings()
+        for key, value in settings.items():
+            if value and not os.environ.get(key):
+                os.environ[key] = value
 
     def get_tools(self, ctx: "PluginContext") -> list["Tool"]:
         """Optional: Return tools this channel provides for LLM function calling.

@@ -20,6 +20,13 @@ from .context_utils import get_cache_context_budget
 from ..streaming_utils import stream_llm_response
 
 
+def _get_agent_display_name(agent: str) -> str:
+    """Get display name for an agent. Falls back to capitalized ID."""
+    from ..agent_config import get_agent_config
+    cfg = get_agent_config(agent)
+    return cfg.display_name if cfg else agent.capitalize()
+
+
 async def handle_cache_hit(
     session_id: Optional[str],
     user_text: str,
@@ -38,6 +45,7 @@ async def handle_cache_hit(
     detected_language: str = "de",
     automatik_num_ctx: Optional[int] = None,
     backend_type: str = "",
+    agent: str = "aifred",
 ) -> AsyncIterator[Dict]:
     """
     Handles cache hit - uses cached research data to answer follow-up question
@@ -258,7 +266,7 @@ async def handle_cache_hit(
     # Strip thinking blocks and update llm_history BEFORE calculating history_tokens
     final_answer_clean = strip_thinking_blocks(final_answer) if final_answer else ""
     if final_answer_clean:
-        llm_history.append({"role": "assistant", "content": f"[AIFRED]: {final_answer_clean}"})
+        llm_history.append({"role": "assistant", "content": f"[{agent.upper()}]: {final_answer_clean}"})
 
     # History tokens now reflect the current conversation state (incl. AI response)
     from ..context_manager import estimate_tokens_from_llm_history
@@ -287,9 +295,9 @@ async def handle_cache_hit(
     history.append({
         "role": "assistant",
         "content": f"{final_answer_formatted}\n\n{metadata_display}",
-        "agent": "aifred",
-        "agent_display_name": "AIfred",
-        "agent_emoji": get_agent_emoji("aifred"),
+        "agent": agent,
+        "agent_display_name": _get_agent_display_name(agent),
+        "agent_emoji": get_agent_emoji(agent),
         "mode": "session_cache",
         "round_num": 0,
         "metadata": metadata_dict,

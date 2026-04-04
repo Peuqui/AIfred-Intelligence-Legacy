@@ -11,10 +11,10 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
-from ...lib.function_calling import Tool
-from ...lib.security import TIER_WRITE_DATA, TIER_READONLY
-from ...lib.plugin_base import PluginContext
-from ...lib.prompt_loader import load_prompt
+from ....lib.function_calling import Tool
+from ....lib.security import TIER_WRITE_DATA, TIER_READONLY
+from ....lib.plugin_base import PluginContext
+from ....lib.prompt_loader import load_prompt
 
 
 @dataclass
@@ -26,7 +26,7 @@ class SchedulerPlugin:
         return True
 
     def get_tools(self, ctx: PluginContext) -> list[Tool]:
-        from ...lib.logging_utils import log_message
+        from ....lib.logging_utils import log_message
 
         async def _create(
             name: str,
@@ -40,7 +40,7 @@ class SchedulerPlugin:
             webhook_url: str = "",
         ) -> str:
             """Create a new scheduled job."""
-            from ...lib.scheduler import get_job_store
+            from ....lib.scheduler import get_job_store
 
             if schedule_type not in ("cron", "interval", "once"):
                 return json.dumps({"error": f"Invalid schedule_type: {schedule_type}. Use: cron, interval, once"})
@@ -59,7 +59,7 @@ class SchedulerPlugin:
                 payload["webhook_url"] = webhook_url
 
             # Jobs run as cron — cap at cron default tier, not the creator's tier
-            from ...lib.security import DEFAULT_TIER_BY_SOURCE
+            from ....lib.security import DEFAULT_TIER_BY_SOURCE
             job_tier = DEFAULT_TIER_BY_SOURCE.get("cron", 1)
 
             job = store.add(
@@ -82,7 +82,7 @@ class SchedulerPlugin:
 
         async def _list() -> str:
             """List all scheduled jobs."""
-            from ...lib.scheduler import get_job_store
+            from ....lib.scheduler import get_job_store
             store = get_job_store()
             jobs = store.list_all()
             if not jobs:
@@ -106,7 +106,7 @@ class SchedulerPlugin:
 
         async def _delete(job_id: int) -> str:
             """Delete a scheduled job."""
-            from ...lib.scheduler import get_job_store
+            from ....lib.scheduler import get_job_store
             store = get_job_store()
             job = store.get(job_id)
             if not job:

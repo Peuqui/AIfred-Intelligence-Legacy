@@ -12,13 +12,13 @@ from typing import TYPE_CHECKING
 
 import discord
 
-from ...lib.plugin_base import BaseChannel, CredentialField
-from ...lib.logging_utils import log_message
+from ....lib.plugin_base import BaseChannel, CredentialField
+from ....lib.logging_utils import log_message
 
 if TYPE_CHECKING:
-    from ...lib.envelope import InboundMessage, OutboundMessage
-    from ...lib.function_calling import Tool
-    from ...lib.plugin_base import PluginContext
+    from ....lib.envelope import InboundMessage, OutboundMessage
+    from ....lib.function_calling import Tool
+    from ....lib.plugin_base import PluginContext
 
 # After a connection error, wait before reconnecting
 _RECONNECT_DELAY_SECONDS = 30
@@ -80,7 +80,7 @@ class DiscordChannel(BaseChannel):
         ]
 
     def is_configured(self) -> bool:
-        from ...lib.credential_broker import broker
+        from ....lib.credential_broker import broker
         return (
             broker.get("discord", "enabled").lower() == "true"
             and broker.is_set("discord", "bot_token")
@@ -88,7 +88,7 @@ class DiscordChannel(BaseChannel):
 
     def apply_credentials(self, values: dict[str, str]) -> None:
         """Update runtime credentials via the broker."""
-        from ...lib.credential_broker import broker
+        from ....lib.credential_broker import broker
 
         broker.set_runtime("discord", "enabled", "true")
 
@@ -105,7 +105,7 @@ class DiscordChannel(BaseChannel):
         """Discord bot loop — runs until cancelled."""
         global _discord_client
 
-        from ...lib.credential_broker import broker
+        from ....lib.credential_broker import broker
 
         if not self.is_configured():
             self.channel_log("Discord Plugin: not configured, not starting", "warning")
@@ -162,7 +162,7 @@ class DiscordChannel(BaseChannel):
             sender = f"{message.author.display_name} ({message.author.name})"
             timestamp = message.created_at.replace(tzinfo=timezone.utc)
 
-            from ...lib.envelope import InboundMessage
+            from ....lib.envelope import InboundMessage
 
             inbound = InboundMessage(
                 channel="discord",
@@ -226,7 +226,7 @@ class DiscordChannel(BaseChannel):
         else:
             await channel.send(text)  # type: ignore[union-attr]
 
-        from ...lib.debug_bus import debug
+        from ....lib.debug_bus import debug
         channel_name = getattr(channel, 'name', channel_id)
         debug(f"📤 Reply sent to {outbound.recipient} (#{channel_name})")
 
@@ -234,7 +234,7 @@ class DiscordChannel(BaseChannel):
 
     def build_context(self, message: "InboundMessage") -> str:
         """Prepare Discord message for LLM."""
-        from ...lib.prompt_loader import load_prompt
+        from ....lib.prompt_loader import load_prompt
 
         return load_prompt(
             "shared/channel_discord",
@@ -249,9 +249,9 @@ class DiscordChannel(BaseChannel):
 
     def get_tools(self, ctx: "PluginContext") -> list["Tool"]:
         """Provide discord_send tool for LLM function calling."""
-        from ...lib.function_calling import Tool
-        from ...lib.security import TIER_COMMUNICATE
-        from ...lib.credential_broker import broker
+        from ....lib.function_calling import Tool
+        from ....lib.security import TIER_COMMUNICATE
+        from ....lib.credential_broker import broker
         import json
 
         async def _execute_discord_send(message: str, channel_id: str = "") -> str:
@@ -313,7 +313,7 @@ class DiscordChannel(BaseChannel):
 
 async def _dispatch_inbound(message: "InboundMessage") -> None:
     """Hand an inbound message to the message processor."""
-    from ...lib.message_processor import process_inbound
+    from ....lib.message_processor import process_inbound
 
     outbound = await process_inbound(message)
 

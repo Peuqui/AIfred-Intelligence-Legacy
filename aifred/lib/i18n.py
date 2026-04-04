@@ -136,38 +136,17 @@ class TranslationManager:
             "cred_title_suffix": "Einstellungen",
             "cred_save": "Speichern & Aktivieren",
             "cred_cancel": "Abbrechen",
-            "freeecho2_cred_port": "WebSocket Port",
-            "freeecho2_cred_tts_engine": "TTS Engine",
-            "freeecho2_cred_tts_voice": "Fallback-Stimme (optional, sonst aus Agenten-Config)",
+            # Plugin credential labels are now in each plugin's i18n.json.
+            # Keys kept here as fallback for tool plugins not yet migrated:
+            "deepl_cred_api_key": "DeepL API Key",
+            "deepl_cred_api_key_tooltip": "API Key von deepl.com/pro#developer.\nFree Keys enden auf :fx (500.000 Zeichen/Monat kostenlos).",
+            "epim_cred_db_path": "Datenbank-Pfad",
+            "epim_cred_db_path_tooltip": "Vollstaendiger Pfad zur EPIM-Datenbankdatei (.epim).",
             # Hub toast messages
             "hub_toast_received": "📨 {channel}: {sender}",
             "hub_toast_processing": "🔄 {channel}: {sender} — Generiere Antwort...",
             "hub_toast_done": "✅ {channel}: Antwort gesendet an {sender}",
             "hub_toast_error": "❌ {channel}: Fehler bei {sender}",
-            # Email credential labels (referenced by email plugin)
-            "email_cred_imap_host": "IMAP Host",
-            "email_cred_imap_port": "IMAP Port",
-            "email_cred_smtp_host": "SMTP Host",
-            "email_cred_smtp_port": "SMTP Port",
-            "email_cred_user": "Benutzername / E-Mail",
-            "email_cred_password": "Passwort",
-            "email_cred_from": "Anzeigename (optional)",
-            "email_cred_allowed_senders": "Erlaubte Absender",
-            "email_cred_allowed_senders_tooltip": "Kommagetrennte Liste von E-Mail-Adressen oder Domains.\nBeispiel: user@mail.de, @family.de\n* = alle erlaubt, leer = niemand erlaubt.\nErster Eintrag = Owner (bekommt erhoehte Rechte).",
-            # Discord credential labels
-            "discord_cred_bot_token": "Bot Token",
-            "discord_cred_channel_ids": "Channel IDs",
-            "discord_cred_channel_ids_tooltip": "Kommagetrennte Discord Channel-IDs.\nChannel-ID herausfinden: Rechtsklick auf Channel → 'ID kopieren'\n(Entwicklermodus muss in Discord aktiviert sein).",
-            # Telegram credential labels
-            "telegram_cred_bot_token": "Bot Token",
-            "telegram_cred_allowed_users": "Erlaubte User-IDs",
-            "telegram_cred_allowed_users_tooltip": "Kommagetrennte Telegram User-IDs.\nUser-ID herausfinden: @userinfobot in Telegram anschreiben.\nBeispiel: 123456789, 987654321\n* = alle erlaubt, leer = niemand erlaubt.\nErster Eintrag = Owner (bekommt erhoehte Rechte).",
-            # DeepL credential labels
-            "deepl_cred_api_key": "DeepL API Key",
-            "deepl_cred_api_key_tooltip": "API Key von deepl.com/pro#developer.\nFree Keys enden auf :fx (500.000 Zeichen/Monat kostenlos).",
-            # EPIM credential labels
-            "epim_cred_db_path": "Datenbank-Pfad",
-            "epim_cred_db_path_tooltip": "Vollstaendiger Pfad zur EPIM-Datenbankdatei (.epim).",
             "system_control": "🔄 System-Steuerung",
             "restart_ollama": "🔄 Ollama Neustart",
             "restart_vllm": "🔄 vLLM Neustart",
@@ -548,38 +527,17 @@ class TranslationManager:
             "cred_title_suffix": "Settings",
             "cred_save": "Save & Activate",
             "cred_cancel": "Cancel",
-            "freeecho2_cred_port": "WebSocket Port",
-            "freeecho2_cred_tts_engine": "TTS Engine",
-            "freeecho2_cred_tts_voice": "Fallback Voice (optional, otherwise from Agent Config)",
+            # Plugin credential labels are now in each plugin's i18n.json.
+            # Keys kept here as fallback for tool plugins not yet migrated:
+            "deepl_cred_api_key": "DeepL API Key",
+            "deepl_cred_api_key_tooltip": "API key from deepl.com/pro#developer.\nFree keys end with :fx (500,000 chars/month free).",
+            "epim_cred_db_path": "Database Path",
+            "epim_cred_db_path_tooltip": "Full path to the EPIM database file (.epim).",
             # Hub toast messages
             "hub_toast_received": "📨 {channel}: {sender}",
             "hub_toast_processing": "🔄 {channel}: {sender} — Generating response...",
             "hub_toast_done": "✅ {channel}: Reply sent to {sender}",
             "hub_toast_error": "❌ {channel}: Error for {sender}",
-            # Email credential labels
-            "email_cred_imap_host": "IMAP Host",
-            "email_cred_imap_port": "IMAP Port",
-            "email_cred_smtp_host": "SMTP Host",
-            "email_cred_smtp_port": "SMTP Port",
-            "email_cred_user": "Username / Email",
-            "email_cred_password": "Password",
-            "email_cred_from": "Display Name (optional)",
-            "email_cred_allowed_senders": "Allowed Senders",
-            "email_cred_allowed_senders_tooltip": "Comma-separated email addresses or domains.\nExample: user@mail.de, @family.de\n* = allow all, empty = allow none.\nFirst entry = owner (gets elevated permissions).",
-            # Discord credential labels
-            "discord_cred_bot_token": "Bot Token",
-            "discord_cred_channel_ids": "Channel IDs",
-            "discord_cred_channel_ids_tooltip": "Comma-separated Discord channel IDs.\nFind ID: right-click channel → 'Copy ID'\n(Developer mode must be enabled in Discord).",
-            # Telegram credential labels
-            "telegram_cred_bot_token": "Bot Token",
-            "telegram_cred_allowed_users": "Allowed User IDs",
-            "telegram_cred_allowed_users_tooltip": "Comma-separated Telegram user IDs.\nFind your ID: message @userinfobot on Telegram.\nExample: 123456789, 987654321\n* = allow all, empty = allow none.\nFirst entry = owner (gets elevated permissions).",
-            # DeepL credential labels
-            "deepl_cred_api_key": "DeepL API Key",
-            "deepl_cred_api_key_tooltip": "API key from deepl.com/pro#developer.\nFree keys end with :fx (500,000 chars/month free).",
-            # EPIM credential labels
-            "epim_cred_db_path": "Database Path",
-            "epim_cred_db_path_tooltip": "Full path to the EPIM database file (.epim).",
             "system_control": "🔄 System Control",
             "restart_ollama": "🔄 Ollama Restart",
             "restart_vllm": "🔄 vLLM Restart",

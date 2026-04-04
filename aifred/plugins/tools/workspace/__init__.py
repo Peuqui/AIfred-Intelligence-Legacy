@@ -10,12 +10,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from ...lib.function_calling import Tool
-from ...lib.security import TIER_READONLY, TIER_WRITE_DATA, TIER_WRITE_SYSTEM
-from ...lib.plugin_base import PluginContext
-from ...lib.i18n import t
-from ...lib.logging_utils import log_message
-from ...lib.prompt_loader import load_prompt
+from ....lib.function_calling import Tool
+from ....lib.security import TIER_READONLY, TIER_WRITE_DATA, TIER_WRITE_SYSTEM
+from ....lib.plugin_base import PluginContext
+from ....lib.i18n import t
+from ....lib.logging_utils import log_message
+from ....lib.prompt_loader import load_prompt
 
 # Base directory for all file operations (path traversal protection)
 _DATA_DIR = Path(__file__).parent.parent.parent.parent / "data"
@@ -377,7 +377,7 @@ class WorkspacePlugin:
 
         async def _index_document(filename: str) -> str:
             """Index a file from data/documents/ into ChromaDB."""
-            from ...lib.document_store import get_document_store
+            from ....lib.document_store import get_document_store
             store = get_document_store()
             if not store:
                 return json.dumps({"error": "ChromaDB not available"})
@@ -388,7 +388,7 @@ class WorkspacePlugin:
             if not file_path or not file_path.exists():
                 return json.dumps({"error": f"File not found: {filename}"})
 
-            from ...lib.config import DOCUMENT_ALLOWED_EXTENSIONS
+            from ....lib.config import DOCUMENT_ALLOWED_EXTENSIONS
             if file_path.suffix.lower() not in DOCUMENT_ALLOWED_EXTENSIONS:
                 return json.dumps({
                     "error": f"Unsupported file type: {file_path.suffix}. "
@@ -430,7 +430,7 @@ class WorkspacePlugin:
 
         async def _search_documents(query: str, n_results: int = 5) -> str:
             """Semantic search in ChromaDB."""
-            from ...lib.document_store import get_document_store
+            from ....lib.document_store import get_document_store
             store = get_document_store()
             if not store:
                 return json.dumps({"error": "ChromaDB not available"})
@@ -476,7 +476,7 @@ class WorkspacePlugin:
 
         async def _list_indexed() -> str:
             """List all documents indexed in ChromaDB."""
-            from ...lib.document_store import get_document_store
+            from ....lib.document_store import get_document_store
             store = get_document_store()
             if not store:
                 return json.dumps({"error": "ChromaDB not available"})
@@ -499,7 +499,7 @@ class WorkspacePlugin:
 
         async def _delete_document(filename: str) -> str:
             """Delete a document from ChromaDB (and optionally from disk)."""
-            from ...lib.document_store import get_document_store
+            from ....lib.document_store import get_document_store
             store = get_document_store()
             if not store:
                 return json.dumps({"error": "ChromaDB not available"})

@@ -1,0 +1,14 @@
+{
+  "discord_cred_bot_token": {
+    "de": "Bot Token",
+    "en": "Bot Token"
+  },
+  "discord_cred_channel_ids": {
+    "de": "Channel IDs",
+    "en": "Channel IDs"
+  },
+  "discord_cred_channel_ids_tooltip": {
+    "de": "Kommagetrennte Discord Channel-IDs.\nChannel-ID herausfinden: Rechtsklick auf Channel \u2192 'ID kopieren'\n(Entwicklermodus muss in Discord aktiviert sein).",
+    "en": "Comma-separated Discord channel IDs.\nFind ID: right-click channel \u2192 'Copy ID'\n(Developer mode must be enabled in Discord)."
+  }
+}

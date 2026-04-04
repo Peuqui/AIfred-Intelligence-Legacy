@@ -27,47 +27,25 @@ Firmware-TODOs dort in TODO.md, hier nur AIfred-seitige Punkte.
 ### Naechste Schritte (AIfred-Seite)
 - [ ] Latenz-Optimierung: Kaltstart ~30s (Modell-Ladezeit), ~2.7s warm
 - [ ] Memory-Injektion fuer alle Agenten untersuchen
-- [ ] Vision Modell soll wie alle anderen Agenten behandelt werden: Tools, Memory, etc. Es wird dann als der Agent gewertet, der ausgewählt wurde, Fallback: AIfred
+- [x] Vision Modell als vollwertiger Agent: Tools, Memory, Personality des aktiven Agenten
 
-### Plugin-System Refactoring (PRIORITAET)
+### Plugin-System Refactoring
 
-**Ziel:** Jedes Plugin ist eine selbststaendige, portable Einheit. Ordner loeschen = alles weg,
-keine Leichen in .env oder zentraler i18n.py.
-
-**Ordnerstruktur pro Plugin:**
-```
-aifred/plugins/channels/freeecho2_channel/
-    __init__.py          # Plugin-Code
-    i18n.json            # Eigene Uebersetzungen (min. DE/EN)
-    settings.json        # Persistierte Settings (Port, Engine etc.)
-```
-
-**Grenze .env vs settings.json:**
-- **.env**: NUR echte Secrets (Passwoerter, API Keys, Tokens) + ENABLED-Flags
-- **settings.json im Plugin-Ordner**: Alles andere (Ports, Engines, Stimmen, Thresholds)
-
-**Konkret pro Plugin:**
-- FreeEcho.2: Null .env-Eintraege (keine Secrets), alles in settings.json
-- Email: IMAP/SMTP Passwort → .env, Rest (Server, Port, Allowed Senders) → settings.json
-- Telegram: Bot Token → .env, Rest → settings.json
-- Discord: Bot Token → .env, Rest → settings.json
-- EPIM: Alles in settings.json (kein Secret)
-- Translator: API Key → .env
-
-**Umsetzungsschritte:**
-- [ ] `CredentialField` um `is_secret: bool = False` erweitern
-- [ ] Plugin-eigene `settings.json` lesen/schreiben (statt .env fuer non-secrets)
-- [ ] `credential_broker` aus beiden Quellen lesen (.env fuer Secrets, settings.json fuer Config)
-- [ ] **Plugin-eigenes i18n** — `i18n.json` im Plugin-Ordner, wird beim Laden des Plugins registriert
-  - Zentrale i18n.py entschlanken: Plugin-spezifische Keys raus
-  - Plugin liefert eigene Uebersetzungen (min. DE/EN)
-- [ ] **Credential-Modal Label-Rendering fixen** — zeigt i18n Keys statt Klartext
-- [ ] Modal-Titel nutzt display_name + i18n "Einstellungen"/"Settings"
-- [ ] Migration: bestehende .env-Eintraege in settings.json ueberfuehren (einmalig)
+- [x] `CredentialField` um `is_secret: bool = False` erweitern
+- [x] Plugin-eigene `settings.json` lesen/schreiben (statt .env fuer non-secrets)
+- [x] Settings beim Boot in os.environ laden (load_settings_to_env)
+- [x] Plugin-eigenes i18n — `i18n.json` im Plugin-Ordner
+- [x] Zentrale i18n.py entschlankt: Channel-Plugin-Keys raus
+- [x] Credential-Modal: Labels aus Plugin-i18n, Fallback auf zentrale i18n
+- [x] Modal-Titel nutzt display_name + i18n "Einstellungen"/"Settings"
+- [x] Migration: bestehende .env-Eintraege in settings.json (einmalig, automatisch)
+- [x] Discord in discord_channel/ Ordner migriert (alle Plugins = Ordner)
+- [x] TTS Engine Manager: Single Source of Truth fuer Engine-Lifecycle (VRAM, Container)
+- [x] Tool-Plugins in Ordner-Struktur migriert (calculator, research, sandbox, etc.)
 
 ### FreeEcho.2 Plugin
 - [ ] TTS Voice Dropdown dynamisch (abhaengig von gewaehlter Engine, verfuegbare Stimmen auflisten)
-- [ ] Plugin TTS Engine Wechsel: automatisches VRAM Management + Docker Container Start/Stop
+- [x] Plugin TTS Engine Wechsel: automatisches VRAM Management + Docker Container Start/Stop
 
 ---
 

@@ -31,6 +31,13 @@ from .context_utils import get_rag_context_budget
 from ..streaming_utils import stream_llm_response
 
 
+def _get_agent_display_name(agent: str) -> str:
+    """Get display name for an agent. Falls back to capitalized ID."""
+    from ..agent_config import get_agent_config
+    cfg = get_agent_config(agent)
+    return cfg.display_name if cfg else agent.capitalize()
+
+
 async def build_and_generate_response(
     user_text: str,
     tool_results: List[Dict],
@@ -56,6 +63,7 @@ async def build_and_generate_response(
     detected_language: Optional[str] = None,
     volatility: Optional[str] = None,  # From Automatik-LLM (NOCACHE/DAILY/etc.)
     backend_type: str = "",  # Backend type for metadata display
+    agent: str = "aifred",
 ) -> AsyncIterator[Dict]:
     """
     Build context and generate LLM response
@@ -329,7 +337,7 @@ async def build_and_generate_response(
     # Strip thinking + update llm_history BEFORE history_tokens calculation
     ai_text_clean = strip_thinking_blocks(ai_text) if ai_text else ""
     if ai_text_clean:
-        llm_history.append({"role": "assistant", "content": f"[AIFRED]: {ai_text_clean}"})
+        llm_history.append({"role": "assistant", "content": f"[{agent.upper()}]: {ai_text_clean}"})
 
     # History tokens now reflect the current conversation state (incl. AI response)
     from ..context_manager import estimate_tokens_from_llm_history
@@ -435,9 +443,9 @@ async def build_and_generate_response(
     history.append({
         "role": "assistant",
         "content": f"{history_content}\n\n{metadata_display}",
-        "agent": "aifred",
-        "agent_display_name": "AIfred",
-        "agent_emoji": get_agent_emoji("aifred"),
+        "agent": agent,
+        "agent_display_name": _get_agent_display_name(agent),
+        "agent_emoji": get_agent_emoji(agent),
         "mode": "web_research",
         "round_num": 0,
         "metadata": metadata_dict,

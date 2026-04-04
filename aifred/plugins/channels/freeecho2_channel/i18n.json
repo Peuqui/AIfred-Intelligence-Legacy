@@ -1,0 +1,14 @@
+{
+  "freeecho2_cred_port": {
+    "de": "WebSocket Port",
+    "en": "WebSocket Port"
+  },
+  "freeecho2_cred_tts_engine": {
+    "de": "TTS Engine",
+    "en": "TTS Engine"
+  },
+  "freeecho2_cred_tts_voice": {
+    "de": "Fallback-Stimme (optional, sonst aus Agenten-Config)",
+    "en": "Fallback Voice (optional, otherwise from Agent Config)"
+  }
+}

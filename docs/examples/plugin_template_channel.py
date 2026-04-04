@@ -1,7 +1,13 @@
 """Template: Channel Plugin for AIfred.
 
-Copy this file to aifred/plugins/channels/ and customize.
+Copy this DIRECTORY to aifred/plugins/channels/my_channel/ and customize.
 It will be auto-discovered on next AIfred restart.
+
+Directory structure:
+    aifred/plugins/channels/my_channel/
+        __init__.py     # This file (plugin code)
+        i18n.json       # Translations (min. DE/EN)
+        settings.json   # Auto-generated: non-secret settings
 
 This example shows the minimal structure for a message channel.
 Replace the placeholder implementations with your service's API.
@@ -12,13 +18,13 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING
 
-from ...lib.plugin_base import BaseChannel, CredentialField
-from ...lib.logging_utils import log_message
+from ....lib.plugin_base import BaseChannel, CredentialField
+from ....lib.logging_utils import log_message
 
 if TYPE_CHECKING:
-    from ...lib.envelope import InboundMessage, OutboundMessage
-    from ...lib.function_calling import Tool
-    from ...lib.plugin_base import PluginContext
+    from ....lib.envelope import InboundMessage, OutboundMessage
+    from ....lib.function_calling import Tool
+    from ....lib.plugin_base import PluginContext
 
 
 class MyChannel(BaseChannel):
@@ -38,52 +44,61 @@ class MyChannel(BaseChannel):
     def icon(self) -> str:
         return "message-circle"  # Lucide icon name
 
-    # ── Credentials ───────────────────────────────────────────
+    # ── Credentials & Settings ────────────────────────────────
+    #
+    # is_secret=True  → stored in .env (passwords, tokens, API keys)
+    # is_secret=False → stored in plugin's settings.json (default)
+    # is_password=True implies is_secret=True automatically.
 
     @property
     def credential_fields(self) -> list[CredentialField]:
         return [
             CredentialField(
                 env_key="MY_CHANNEL_TOKEN",
-                label_key="my_channel_token",  # Add to aifred/lib/i18n.py
+                label_key="my_channel_token",  # Key in i18n.json
                 placeholder="your-api-token",
-                is_password=True,
+                is_password=True,  # → is_secret=True, stored in .env
+            ),
+            CredentialField(
+                env_key="MY_CHANNEL_PORT",
+                label_key="my_channel_port",  # Key in i18n.json
+                placeholder="8080",
+                # is_secret=False (default) → stored in settings.json
             ),
         ]
 
     def is_configured(self) -> bool:
-        import os
-        return bool(os.environ.get("MY_CHANNEL_TOKEN"))
+        from ....lib.credential_broker import broker
+        return broker.is_set("my_channel", "token")
 
     def apply_credentials(self, values: dict[str, str]) -> None:
-        import os
-        token = values.get("MY_CHANNEL_TOKEN", "")
-        if token:
-            os.environ["MY_CHANNEL_TOKEN"] = token
+        from ....lib.credential_broker import broker
+        broker.set_runtime("my_channel", "enabled", "true")
+        broker.set_runtime("my_channel", "token", values.get("MY_CHANNEL_TOKEN", ""))
 
     # ── Listener ──────────────────────────────────────────────
 
     async def listener_loop(self) -> None:
         """Long-running listener. Replace with your service's event loop."""
         if not self.is_configured():
-            log_message(f"{self.display_name}: not configured", "warning")
+            self.channel_log(f"{self.display_name}: not configured", "warning")
             return
 
-        log_message(f"{self.display_name}: starting listener...")
+        self.channel_log(f"{self.display_name}: starting listener...")
 
         try:
             while True:
                 # TODO: Replace with your service's message polling/websocket
                 await asyncio.sleep(60)
         except asyncio.CancelledError:
-            log_message(f"{self.display_name}: shutting down")
+            self.channel_log(f"{self.display_name}: shutting down")
 
     # ── Reply ─────────────────────────────────────────────────
 
     async def send_reply(self, outbound: "OutboundMessage", original: "InboundMessage") -> None:
         """Send a reply via your service's API."""
         # TODO: Implement sending
-        log_message(f"{self.display_name}: reply to {outbound.recipient}: {outbound.text[:50]}...")
+        self.channel_log(f"{self.display_name}: reply to {outbound.recipient}: {outbound.text[:50]}...")
 
     # ── Context ───────────────────────────────────────────────
 
@@ -92,7 +107,7 @@ class MyChannel(BaseChannel):
 
         Use prompt files from prompts/de/ and prompts/en/ instead of hardcoded text.
         """
-        from ...lib.prompt_loader import load_prompt
+        from ....lib.prompt_loader import load_prompt
         return load_prompt(
             "shared/channel_my_channel",  # Create this prompt file
             sender=message.sender,

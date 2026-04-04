@@ -6,9 +6,9 @@ import operator
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from ...lib.function_calling import Tool
-from ...lib.security import TIER_READONLY
-from ...lib.plugin_base import PluginContext
+from ....lib.function_calling import Tool
+from ....lib.security import TIER_READONLY
+from ....lib.plugin_base import PluginContext
 
 
 @dataclass
@@ -23,7 +23,7 @@ class CalculatorPlugin:
 
         async def _execute(expression: str) -> str:
             """Evaluate a math expression safely using AST parsing."""
-            from ...lib.logging_utils import log_message
+            from ....lib.logging_utils import log_message
 
             binary_ops: dict[type, Callable[[float, float], float]] = {
                 ast.Add: operator.add,

@@ -538,7 +538,7 @@ class SettingsMixin(rx.State, mixin=True):
     # ================================================================
 
     def open_channel_credentials(self, channel_name: str) -> None:
-        """Open credentials modal for a channel or tool plugin, pre-filled with current .env values."""
+        """Open credentials modal, pre-filled from .env (secrets) and settings.json (config)."""
         from ..lib.plugin_base import CredentialField
         from ..lib.plugin_registry import get_channel, get_tool_plugin
 
@@ -555,22 +555,42 @@ class SettingsMixin(rx.State, mixin=True):
         if not fields:
             return
 
-        # Pre-fill current values from environment
-        from ..lib.i18n import t as _t
+        # Load plugin settings.json for non-secret fields
+        plugin_settings: dict[str, str] = {}
+        if plugin:
+            plugin_settings = plugin.load_settings()
+
+        # Pre-fill values: secrets from os.environ, config from settings.json
         lang = self.ui_language  # type: ignore[attr-defined]
         values: dict[str, str] = {}
         field_descriptors: list[dict[str, str]] = []
+
+        # Translate labels: try plugin i18n first, then central i18n
+        from ..lib.i18n import t as _t
+
         for field in fields:
-            raw_value = os.environ.get(field.env_key, field.default)
+            if field.is_secret:
+                raw_value = os.environ.get(field.env_key, field.default)
+            else:
+                raw_value = plugin_settings.get(field.env_key, os.environ.get(field.env_key, field.default))
+
             # Map stored value to display label for dropdown fields
             if field.options:
                 value_to_label = {val: lbl for val, lbl in field.options}
                 values[field.env_key] = value_to_label.get(raw_value, raw_value)
             else:
                 values[field.env_key] = raw_value
+
+            # Label translation: plugin i18n → central i18n
+            label = ""
+            if plugin:
+                label = plugin.translate(field.label_key, lang=lang)
+            if not label or label == field.label_key:
+                label = _t(field.label_key, lang=lang)
+
             field_descriptors.append({
                 "env_key": field.env_key,
-                "label_key": _t(field.label_key, lang=lang),
+                "label_key": label,
                 "placeholder": field.placeholder,
                 "is_password": "1" if field.is_password else "",
                 "group": field.group,
@@ -608,9 +628,11 @@ class SettingsMixin(rx.State, mixin=True):
         self.channel_cred_show_password = not self.channel_cred_show_password
 
     def save_channel_credentials(self) -> None:
-        """Write credentials to .env and update runtime config.
+        """Write credentials to .env (secrets) and plugin settings.json (config).
 
         Works for both channel plugins and tool plugins.
+        Secrets (is_secret=True) → .env + os.environ
+        Config  (is_secret=False) → plugin's settings.json
         """
         from dotenv import set_key
         from ..lib.config import PROJECT_ROOT
@@ -636,20 +658,36 @@ class SettingsMixin(rx.State, mixin=True):
         if not fields:
             return
 
-        # Write each credential to .env and os.environ
+        # Separate secrets from config settings
+        plugin_settings: dict[str, str] = {}
+        if channel:
+            plugin_settings = channel.load_settings()
+
         for field in fields:
             val = self.channel_credential_values.get(field.env_key, "")
             # Map display label back to stored value for dropdown fields
             if field.options:
                 label_to_value = {lbl: v for v, lbl in field.options}
                 val = label_to_value.get(val, val)
-            if val or not field.is_password:  # Don't overwrite password with empty
-                set_key(env_path, field.env_key, val)
+
+            if field.is_secret:
+                # Secrets → .env + os.environ
+                if val or not field.is_password:  # Don't overwrite password with empty
+                    set_key(env_path, field.env_key, val)
+                    os.environ[field.env_key] = val
+            else:
+                # Config → plugin's settings.json
+                plugin_settings[field.env_key] = val
+                # Also set in os.environ for runtime access
                 os.environ[field.env_key] = val
 
-        self.add_debug(f"🔧 {display} Credentials gespeichert")  # type: ignore[attr-defined, has-type]
+        # Write plugin settings.json (non-secrets)
+        if channel and plugin_settings:
+            channel.save_settings(plugin_settings)
 
-        # Save values (with labels mapped back to values) for apply_credentials
+        self.add_debug(f"🔧 {display} Einstellungen gespeichert")  # type: ignore[attr-defined, has-type]
+
+        # Prepare values for apply_credentials (all fields, regardless of storage)
         saved_values = {}
         for field in fields:
             val = self.channel_credential_values.get(field.env_key, "")

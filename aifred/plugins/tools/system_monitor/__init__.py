@@ -5,10 +5,10 @@ import subprocess
 from dataclasses import dataclass
 from typing import Any
 
-from ...lib.function_calling import Tool
-from ...lib.security import TIER_READONLY
-from ...lib.plugin_base import PluginContext
-from ...lib.logging_utils import log_message
+from ....lib.function_calling import Tool
+from ....lib.security import TIER_READONLY
+from ....lib.plugin_base import PluginContext
+from ....lib.logging_utils import log_message
 
 
 @dataclass

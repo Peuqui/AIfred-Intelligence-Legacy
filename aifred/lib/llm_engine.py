@@ -254,7 +254,8 @@ async def call_llm(
         # Update llm_history BEFORE calculating history_tokens
         # so "History: X tok" reflects the current conversation state (incl. AI response)
         if response_clean:
-            llm_history.append({"role": "assistant", "content": f"[AIFRED]: {response_clean}"})
+            agent_tag = agent.upper()
+            llm_history.append({"role": "assistant", "content": f"[{agent_tag}]: {response_clean}"})
 
         # Rebuild metadata with hub-specific params (history_tokens, backend_type, source_label)
         from .context_manager import estimate_tokens_from_llm_history
@@ -282,8 +283,8 @@ async def call_llm(
         history.append({
             "role": "assistant",
             "content": ai_with_source,
-            "agent": "aifred",
-            "agent_display_name": "AIfred",
+            "agent": agent,
+            "agent_display_name": agent_label,
             "agent_emoji": get_agent_emoji(agent),
             "mode": "own_knowledge",
             "round_num": 0,

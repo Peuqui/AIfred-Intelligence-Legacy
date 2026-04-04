@@ -1,0 +1,38 @@
+{
+  "email_cred_imap_host": {
+    "de": "IMAP Host",
+    "en": "IMAP Host"
+  },
+  "email_cred_imap_port": {
+    "de": "IMAP Port",
+    "en": "IMAP Port"
+  },
+  "email_cred_smtp_host": {
+    "de": "SMTP Host",
+    "en": "SMTP Host"
+  },
+  "email_cred_smtp_port": {
+    "de": "SMTP Port",
+    "en": "SMTP Port"
+  },
+  "email_cred_user": {
+    "de": "Benutzername / E-Mail",
+    "en": "Username / Email"
+  },
+  "email_cred_password": {
+    "de": "Passwort",
+    "en": "Password"
+  },
+  "email_cred_from": {
+    "de": "Anzeigename (optional)",
+    "en": "Display Name (optional)"
+  },
+  "email_cred_allowed_senders": {
+    "de": "Erlaubte Absender",
+    "en": "Allowed Senders"
+  },
+  "email_cred_allowed_senders_tooltip": {
+    "de": "Kommagetrennte Liste von E-Mail-Adressen oder Domains.\nBeispiel: user@mail.de, @family.de\n* = alle erlaubt, leer = niemand erlaubt.\nErster Eintrag = Owner (bekommt erhoehte Rechte).",
+    "en": "Comma-separated email addresses or domains.\nExample: user@mail.de, @family.de\n* = allow all, empty = allow none.\nFirst entry = owner (gets elevated permissions)."
+  }
+}

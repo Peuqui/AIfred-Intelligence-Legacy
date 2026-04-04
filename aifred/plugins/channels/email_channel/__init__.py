@@ -127,7 +127,7 @@ class EmailChannel(BaseChannel):
             CredentialField(
                 env_key="EMAIL_PASSWORD",
                 label_key="email_cred_password",
-                is_password=True,
+                is_password=True,  # is_secret=True implied by is_password
             ),
             CredentialField(
                 env_key="EMAIL_FROM",
