@@ -197,9 +197,13 @@ class FreeEchoChannel(BaseChannel):
         from ....lib.envelope import InboundMessage
         from ....lib.message_processor import process_inbound
 
+        import time as _puck_time
+        _puck_t0 = _puck_time.monotonic()
+
         num_samples = len(audio_data) // 2
         duration = num_samples / 16000.0
-        self.channel_log(f"[FreeEcho.2 {room}] Audio received: {num_samples} samples ({duration:.1f}s)")
+        audio_kb = len(audio_data) / 1024
+        self.channel_log(f"[FreeEcho.2 {room}] Audio received: {num_samples} samples ({duration:.1f}s, {audio_kb:.0f} KB)")
 
         # Convert raw PCM to WAV for STT
         wav_buffer = io.BytesIO()
@@ -214,6 +218,8 @@ class FreeEchoChannel(BaseChannel):
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False, dir="/tmp") as f:
             f.write(wav_bytes)
             wav_path = f.name
+
+        self.channel_log(f"[FreeEcho.2 {room}] WAV prepared ({_puck_time.monotonic()-_puck_t0:.2f}s)")
 
         # Heartbeat task — sends heartbeat every 5s while processing
         heartbeat_running = True
@@ -234,7 +240,7 @@ class FreeEchoChannel(BaseChannel):
                 await ws.send_str(json.dumps({"type": "done", "reason": "stt_empty"}))
                 return
 
-            self.channel_log(f"[FreeEcho.2 {room}] STT: {text}")
+            self.channel_log(f"[FreeEcho.2 {room}] STT ({_puck_time.monotonic()-_puck_t0:.1f}s): {text}")
 
             # Start heartbeat while LLM processes
             await ws.send_str(json.dumps({"type": "processing"}))
@@ -252,12 +258,17 @@ class FreeEchoChannel(BaseChannel):
 
             _devices[room] = ws
 
+            self.channel_log(f"[FreeEcho.2 {room}] → process_inbound ({_puck_time.monotonic()-_puck_t0:.1f}s)")
+
             # process_inbound calls send_reply automatically (via auto_reply)
             await process_inbound(inbound)
 
             # Stop heartbeat
             heartbeat_running = False
             heartbeat_task.cancel()
+
+            total_time = _puck_time.monotonic() - _puck_t0
+            self.channel_log(f"[FreeEcho.2 {room}] ← Pipeline complete ({total_time:.1f}s)")
 
             # Signal client: all done, go back to IDLE
             await ws.send_str(json.dumps({"type": "done"}))
@@ -303,13 +314,25 @@ class FreeEchoChannel(BaseChannel):
             self.channel_log(f"[FreeEcho.2 {room}] TTS failed", "error")
             return
 
-        # Read TTS audio and send as binary
+        # Read TTS audio and send in chunks (512 KB each)
         # The device expects 48kHz mono int16 PCM
         pcm_data = await self._convert_to_pcm(tts_path, 48000)
         if pcm_data:
-            self.channel_log(f"[FreeEcho.2 {room}] Sending TTS: {len(pcm_data)} bytes ({len(pcm_data)/96000:.1f}s)")
-            await ws.send_str(json.dumps({"type": "audio_start", "size": len(pcm_data)}))
-            await ws.send_bytes(pcm_data)
+            chunk_size = 512 * 1024
+            total = len(pcm_data)
+            num_chunks = (total + chunk_size - 1) // chunk_size
+            self.channel_log(f"[FreeEcho.2 {room}] Sending TTS: {total} bytes ({total/96000:.1f}s) in {num_chunks} chunks")
+            await ws.send_str(json.dumps({"type": "audio_start", "total_size": total}))
+            offset = 0
+            chunk_num = 0
+            while offset < total:
+                end = min(offset + chunk_size, total)
+                await ws.send_bytes(pcm_data[offset:end])
+                chunk_num += 1
+                self.channel_log(f"[FreeEcho.2 {room}] Chunk {chunk_num}/{num_chunks}: {end-offset} bytes sent")
+                offset = end
+            await ws.send_str(json.dumps({"type": "audio_end"}))
+            self.channel_log(f"[FreeEcho.2 {room}] Audio transfer complete")
         else:
             self.channel_log(f"[FreeEcho.2 {room}] TTS conversion failed", "error")
 
@@ -324,22 +347,42 @@ class FreeEchoChannel(BaseChannel):
         """
         from ....lib.credential_broker import broker
         from ....lib.config import PROJECT_ROOT, TTS_AGENT_VOICE_DEFAULTS
+        from ....lib.settings import load_settings
 
         # Engine from plugin settings
         engine = broker.get("freeecho2", "tts_engine") or "piper"
 
-        # Voice: explicit override from plugin settings, or agent config, or aifred default
-        override_voice = broker.get("freeecho2", "tts_voice")
-        agent_voices = TTS_AGENT_VOICE_DEFAULTS.get(engine, {})
-        agent_cfg = agent_voices.get(agent) or agent_voices.get("aifred", {})
-        voice = override_voice if override_voice else agent_cfg.get("voice", "Deutsch (Thorsten)")
-        speed = float(agent_cfg.get("speed", "1.0").replace("x", ""))
+        # Voice priority: 1. User settings (per engine+agent), 2. Defaults, 3. Fallback
+        settings = load_settings() or {}
+        user_voices = settings.get("tts_agent_voices_per_engine", {}).get(engine, {})
+        user_cfg = user_voices.get(agent) or user_voices.get("aifred", {})
+        default_voices = TTS_AGENT_VOICE_DEFAULTS.get(engine, {})
+        default_cfg = default_voices.get(agent) or default_voices.get("aifred", {})
 
-        self.channel_log(f"TTS: engine={engine}, agent={agent}, voice={voice}, speed={speed}")
+        # User setting wins, then default, then hardcoded fallback
+        voice = ""
+        if isinstance(user_cfg, dict):
+            voice = user_cfg.get("voice", "")
+        elif isinstance(user_cfg, str):
+            voice = user_cfg
+        if not voice:
+            voice = default_cfg.get("voice", "Deutsch (Thorsten)")
+
+        speed_str = default_cfg.get("speed", "1.0")
+        if isinstance(user_cfg, dict) and user_cfg.get("speed"):
+            speed_str = user_cfg["speed"]
+        speed = float(speed_str.replace("x", ""))
+
+        pitch_str = default_cfg.get("pitch", "1.0")
+        if isinstance(user_cfg, dict) and user_cfg.get("pitch"):
+            pitch_str = user_cfg["pitch"]
+        pitch = float(pitch_str)
+
+        self.channel_log(f"TTS: engine={engine}, agent={agent}, voice={voice}, speed={speed}, pitch={pitch}")
 
         try:
             from ....lib.audio_processing import generate_tts
-            url_path = await generate_tts(text, voice, speed, engine, agent=agent)
+            url_path = await generate_tts(text, voice, speed, engine, pitch=pitch, agent=agent)
             if not url_path:
                 return None
             # Convert URL path (/_upload/tts_audio/xxx.wav) to absolute file path

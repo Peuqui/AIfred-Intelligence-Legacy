@@ -146,7 +146,7 @@ def _ffmpeg_concat(file_paths: list[str], output_path: str) -> bool:
     filter_str = f"{filter_inputs}concat=n={len(file_paths)}:v=0:a=1"
 
     cmd = ["ffmpeg", "-y", *input_args, "-filter_complex", filter_str, output_path]
-    result = subprocess.run(cmd, capture_output=True, timeout=30)
+    result = subprocess.run(cmd, capture_output=True, timeout=None)
     return result.returncode == 0 and os.path.exists(output_path)
 
 
@@ -441,7 +441,7 @@ def apply_audio_adjustments(input_file: str, pitch: float = 1.0, speed: float = 
                 output_file
             ],
             capture_output=True,
-            timeout=30
+            timeout=None
         )
 
         if ffmpeg_result.returncode == 0 and os.path.exists(output_file):
@@ -806,7 +806,7 @@ async def generate_speech_edge(text, voice, rate="+0%"):
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
             future = executor.submit(_edge_tts_sync, text, voice, rate, output_file)
-            success = future.result(timeout=30)  # 30 second timeout
+            success = future.result(timeout=None)  # no timeout — text length varies
 
         if not success:
             log_message("❌ Edge TTS: Thread execution failed")
@@ -869,7 +869,7 @@ def generate_speech_piper(text, speed=1.0, voice_choice="Deutsch (Thorsten)"):
             [PIPER_BIN, "--model", str(model_path), "--output_file", output_file, "--length_scale", str(length_scale)],
             input=text.encode('utf-8'),
             capture_output=True,
-            timeout=30
+            timeout=None
         )
 
         if result.returncode == 0 and os.path.exists(output_file):
@@ -935,7 +935,7 @@ def generate_speech_espeak(text, speed=1.0, voice_choice="Deutsch (Roboter)"):
         result = subprocess.run(
             [espeak_cmd, "-v", voice_lang, "-s", str(wpm), "-w", output_file, text],
             capture_output=True,
-            timeout=30
+            timeout=None
         )
 
         if result.returncode == 0 and os.path.exists(output_file):

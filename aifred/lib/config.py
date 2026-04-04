@@ -614,7 +614,7 @@ TTS_AGENT_VOICE_DEFAULTS = {
         "salomo": {"voice": "Salomo", "speed": "1.25x", "pitch": "1.0", "enabled": True},
     },
     "piper": {
-        "aifred": {"voice": "Deutsch (Thorsten)", "speed": "1.25x", "pitch": "1.0", "enabled": True},
+        "aifred": {"voice": "Deutsch (Karlsson)", "speed": "1.25x", "pitch": "1.0", "enabled": True},
         "sokrates": {"voice": "Deutsch (Karlsson)", "speed": "1.25x", "pitch": "1.0", "enabled": True},
         "salomo": {"voice": "Deutsch (MLS)", "speed": "1.25x", "pitch": "1.0", "enabled": True},
     },

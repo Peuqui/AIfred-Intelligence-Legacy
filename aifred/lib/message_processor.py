@@ -141,7 +141,6 @@ async def process_inbound(message: InboundMessage) -> Optional[OutboundMessage]:
     from .debug_bus import debug, session_scope, flush
     from .session_storage import get_session_title
     from .plugin_registry import get_channel
-    import asyncio
 
     import time as _time
     _t0 = _time.monotonic()
@@ -208,13 +207,6 @@ async def process_inbound(message: InboundMessage) -> Optional[OutboundMessage]:
         flush()  # Write debug messages to session file immediately
 
         _notify("received")
-
-        print(f"⏱️ Pipeline [{message.channel}]: pre-sleep {_time.monotonic()-_t0:.2f}s", flush=True)
-
-        # Give the browser time to pick up the toast before heavy work starts
-        await asyncio.sleep(2)
-
-        print(f"⏱️ Pipeline [{message.channel}]: post-sleep {_time.monotonic()-_t0:.2f}s", flush=True)
 
         # ── Phase 2: Call AIfred engine ───────────────────────
         _notify("processing")
@@ -306,6 +298,9 @@ async def _call_engine(
     Returns (response_text, metadata_dict).
     Debug messages go through the Debug Bus (session_scope must be active).
     """
+    import time as _eng_time
+    _eng_t0 = _eng_time.monotonic()
+
     from .debug_bus import debug
     from .llm_engine import call_llm
     from .session_storage import load_session
@@ -314,6 +309,7 @@ async def _call_engine(
         DEFAULT_SETTINGS, BACKEND_URLS,
         MAIN_LLM_FALLBACK_CONTEXT,
     )
+    print(f"⏱️ _call_engine [{source}]: imports {_eng_time.monotonic()-_eng_t0:.3f}s", flush=True)
 
     # Load current settings
     settings = load_settings() or {}
@@ -326,6 +322,7 @@ async def _call_engine(
     from .config import get_effective_model_from_settings
     model = get_effective_model_from_settings(agent)
     backend_url = BACKEND_URLS.get(backend_type, "")
+    print(f"⏱️ _call_engine [{source}]: settings+model {_eng_time.monotonic()-_eng_t0:.3f}s", flush=True)
 
     if not model:
         log_message(f"Message Processor: no model configured for {agent}/{backend_type}", "error")
@@ -334,6 +331,7 @@ async def _call_engine(
     # Load existing LLM history from session
     session = load_session(session_id)
     llm_history = session.get("data", {}).get("llm_history", []) if session else []
+    print(f"⏱️ _call_engine [{source}]: session+history {_eng_time.monotonic()-_eng_t0:.3f}s", flush=True)
 
     # Resolve calibrated context (no State needed)
     from .research.context_utils import get_model_native_context
@@ -342,6 +340,7 @@ async def _call_engine(
     if num_ctx <= 0:
         num_ctx = MAIN_LLM_FALLBACK_CONTEXT
         ctx_label = "fallback"
+    print(f"⏱️ _call_engine [{source}]: context_resolve {_eng_time.monotonic()-_eng_t0:.3f}s", flush=True)
 
     from .agent_config import get_agent_config
     _agent_cfg = get_agent_config(agent)
@@ -350,6 +349,7 @@ async def _call_engine(
     from .agent_config import get_agent_emoji
     debug(f"{get_agent_emoji(agent)} {agent_display}-LLM: {model} ({backend_type})")
     debug(f"📜 History: {len(llm_history)} messages")
+    print(f"⏱️ _call_engine [{source}]: debug_output {_eng_time.monotonic()-_eng_t0:.3f}s", flush=True)
 
     # Prepare full toolkit (memory + all plugin tools)
     lang = settings.get("ui_language", "de")
@@ -358,6 +358,7 @@ async def _call_engine(
     toolkit = None
     memory_ctx = ""
     from .agent_memory import prepare_agent_toolkit
+    print(f"⏱️ _call_engine [{source}]: pre-toolkit {_eng_time.monotonic()-_eng_t0:.3f}s", flush=True)
     memory_ctx, toolkit = await prepare_agent_toolkit(
         agent, user_text, lang=lang,
         memory_enabled=memory_enabled,
@@ -366,6 +367,7 @@ async def _call_engine(
         max_tier=max_tier,
         source=source,
     )
+    print(f"⏱️ _call_engine [{source}]: post-toolkit {_eng_time.monotonic()-_eng_t0:.2f}s", flush=True)
     if toolkit:
         debug(f"🔧 Toolkit: {[t.name for t in toolkit.tools]} for {agent_display}")
 

@@ -360,6 +360,8 @@ async def prepare_agent_toolkit(
     Returns:
         (memory_context_str, toolkit) — context for system prompt, combined toolkit.
     """
+    import time as _pat_time
+    _pat_t0 = _pat_time.monotonic()
     all_tools: list[Tool] = []
     memory_ctx = ""
 
@@ -372,6 +374,7 @@ async def prepare_agent_toolkit(
                 memory_ctx = format_memory_context(memories, agent_id=agent_id, lang=lang)
             all_tools.extend(memory.make_toolkit(agent_id, session_id=session_id or "").tools)
 
+    print(f"⏱️ prepare_toolkit: post-memory {_pat_time.monotonic()-_pat_t0:.2f}s", flush=True)
     # All other tools via plugin system
     if research_tools_enabled:
         from .plugin_base import PluginContext
@@ -390,6 +393,7 @@ async def prepare_agent_toolkit(
         for p in discover_tools():
             if p.is_available():
                 all_tools.extend(p.get_tools(ctx))
+        print(f"⏱️ prepare_toolkit: post-plugin-tools {_pat_time.monotonic()-_pat_t0:.2f}s", flush=True)
 
         # Channel plugin tools (e.g. discord_send)
         from .plugin_registry import all_channels

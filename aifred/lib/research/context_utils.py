@@ -29,39 +29,48 @@ if TYPE_CHECKING:
     from ...state import AIState
 
 
+_current_native_context: int = 0
+_current_native_model: str = ""
+
+
+def set_model_native_context(model_id: str, num_ctx: int) -> None:
+    """Set the current model's context length. Called on model/backend switch."""
+    global _current_native_context, _current_native_model
+    _current_native_context = num_ctx
+    _current_native_model = model_id
+
+
 def get_model_native_context(model_id: str, backend_type: str) -> int:
+    """Get native context length for the current model. No file I/O.
+
+    Returns the value from set_model_native_context().
+    Fallback: reads llama-swap YAML once if not yet set.
     """
-    Get native (maximum) context length for a model WITHOUT API calls.
+    global _current_native_context, _current_native_model
 
-    This replaces the expensive get_model_context_limit() API call that caused
-    a 5-second delay for llama.cpp (llama-swap had to start the server).
+    if _current_native_model == model_id and _current_native_context > 0:
+        return _current_native_context
 
-    For llama.cpp: reads GGUF file metadata (local file I/O, ~1ms)
-    For Ollama:    reads from VRAM cache (in-memory, ~0ms)
-
-    Returns:
-        Native context length in tokens, or 0 if not determinable
-    """
+    # Fallback: read from config (only if variable not set yet)
     if backend_type == "llamacpp":
-        # Read native context directly from GGUF metadata (no API call!)
         from ..llamacpp_calibration import parse_llamaswap_config
         from ..config import LLAMASWAP_CONFIG_PATH
-        from ..gguf_utils import get_gguf_native_context
-        from pathlib import Path
 
         config = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
         if model_id in config:
-            gguf_path = Path(config[model_id]["gguf_path"])
-            if gguf_path.exists():
-                native_ctx = get_gguf_native_context(gguf_path)
-                if native_ctx:
-                    return native_ctx
+            ctx = config[model_id].get("current_context", 0)
+            if ctx > 0:
+                _current_native_context = ctx
+                _current_native_model = model_id
+                return ctx
         return 0
 
     else:
-        # Ollama/vLLM: read from VRAM cache (native_context field)
         from ..model_vram_cache import get_model_native_context_from_cache
         cached = get_model_native_context_from_cache(model_id)
+        if cached:
+            _current_native_context = cached
+            _current_native_model = model_id
         return cached or 0
 
 

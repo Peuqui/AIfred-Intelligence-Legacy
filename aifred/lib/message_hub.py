@@ -1,14 +1,18 @@
 """Message Hub — Background worker management for channel listeners.
 
 Manages the lifecycle of channel workers (IMAP listener, Discord bot, etc.).
-Workers are registered as async coroutines and run as asyncio tasks.
-Started during global init (on_load) to survive Granian worker respawns.
+Workers run in a **separate thread** with their own asyncio event loop,
+completely independent of the Reflex UI event loop. This prevents UI
+operations (session reloads, polling) from blocking channel processing.
+
+Communication with the Reflex UI is via files (session JSON, notifications).
 
 Workers auto-restart on crash with exponential backoff (max 5 retries).
 """
 
 import asyncio
 import sys
+import threading
 from dataclasses import dataclass
 from typing import Callable, Coroutine
 
@@ -37,10 +41,17 @@ class _Worker:
 
 
 class MessageHub:
-    """Central registry and lifecycle manager for channel workers."""
+    """Central registry and lifecycle manager for channel workers.
+
+    Workers run in a dedicated background thread with their own asyncio
+    event loop, completely decoupled from the Reflex UI event loop.
+    """
 
     def __init__(self) -> None:
         self._workers: dict[str, _Worker] = {}
+        self._thread: threading.Thread | None = None
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._started = threading.Event()
 
     # ------------------------------------------------------------------
     # Registration
@@ -70,37 +81,89 @@ class MessageHub:
     # Lifecycle
     # ------------------------------------------------------------------
 
-    async def start_all(self) -> None:
-        """Start all registered workers as background tasks."""
+    def _thread_main(self) -> None:
+        """Entry point for the worker thread. Creates its own event loop."""
+        self._loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self._loop)
+        _hub_log("Message Hub: worker thread started (own event loop)")
+
+        # Start all workers as tasks in this loop
         for worker in self._workers.values():
             if worker.task and not worker.task.done():
-                continue  # already running
-            worker.task = asyncio.create_task(
+                continue
+            worker.task = self._loop.create_task(
                 self._run_worker(worker),
                 name=f"message_hub:{worker.name}",
             )
+
         started = [w.name for w in self._workers.values() if w.task]
         if started:
             _hub_log(f"Message Hub: started workers: {', '.join(started)}")
         else:
             _hub_log("Message Hub: no workers registered")
 
+        self._started.set()
+
+        # Run the event loop until stop_all is called
+        self._loop.run_forever()
+
+        # Cleanup after loop stops
+        pending = asyncio.all_tasks(self._loop)
+        for task in pending:
+            task.cancel()
+        if pending:
+            self._loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+        self._loop.close()
+        self._loop = None
+        _hub_log("Message Hub: worker thread stopped")
+
+    async def start_all(self) -> None:
+        """Start all workers in a dedicated background thread.
+
+        The thread gets its own asyncio event loop, completely independent
+        of the Reflex UI loop. This prevents UI operations from blocking
+        channel message processing.
+        """
+        if self._thread and self._thread.is_alive():
+            _hub_log("Message Hub: worker thread already running")
+            return
+
+        self._started.clear()
+        self._thread = threading.Thread(
+            target=self._thread_main,
+            name="message_hub_worker",
+            daemon=True,
+        )
+        self._thread.start()
+
+        # Wait for the thread to start its event loop
+        self._started.wait(timeout=10)
+
     async def stop_all(self) -> None:
-        """Cancel all running worker tasks and wait for them to finish."""
-        tasks_to_cancel: list[asyncio.Task] = []
+        """Stop all workers and shut down the worker thread."""
+        if not self._loop or not self._thread:
+            return
+
+        # Cancel all tasks from the main thread (thread-safe)
         for worker in self._workers.values():
             if worker.task and not worker.task.done():
-                worker.task.cancel()
-                tasks_to_cancel.append(worker.task)
+                self._loop.call_soon_threadsafe(worker.task.cancel)
                 _hub_log(f"Message Hub: cancelling worker '{worker.name}'")
 
-        if tasks_to_cancel:
-            await asyncio.gather(*tasks_to_cancel, return_exceptions=True)
-            _hub_log("Message Hub: all workers stopped")
+        # Stop the event loop (thread-safe)
+        self._loop.call_soon_threadsafe(self._loop.stop)
+
+        # Wait for thread to finish
+        self._thread.join(timeout=10)
+        if self._thread.is_alive():
+            _hub_log("Message Hub: WARNING — worker thread did not stop cleanly", "warning")
 
         # Clear task references
         for worker in self._workers.values():
             worker.task = None
+
+        self._thread = None
+        _hub_log("Message Hub: all workers stopped")
 
     # ------------------------------------------------------------------
     # Status
