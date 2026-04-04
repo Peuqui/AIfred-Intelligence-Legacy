@@ -67,7 +67,11 @@ class ToolPlugin(Protocol):
 
 @dataclass
 class CredentialField:
-    """Describes a single credential field for the Settings UI."""
+    """Describes a single credential field for the Settings UI.
+
+    If placeholder is set but default is not, placeholder is used as default.
+    This prevents the UI showing a hint that looks like a value but saves empty.
+    """
 
     env_key: str            # Environment variable name
     label_key: str          # i18n key for the label
@@ -77,6 +81,10 @@ class CredentialField:
     width_ratio: int = 1    # Relative width in a row
     group: str = ""         # Group fields into one hstack
     options: list[tuple[str, str]] | None = None  # If set, render as dropdown: [(value, label), ...]
+
+    def __post_init__(self) -> None:
+        if self.placeholder and not self.default:
+            self.default = self.placeholder
 
 
 class BaseChannel(ABC):

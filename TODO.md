@@ -29,13 +29,40 @@ Firmware-TODOs dort in TODO.md, hier nur AIfred-seitige Punkte.
 - [ ] Memory-Injektion fuer alle Agenten untersuchen
 
 ### Plugin-System Refactoring (PRIORITAET)
-- [ ] Plugin-Settings in eigene JSON pro Plugin (`data/settings/<plugin>.json`) statt .env
-  - .env Aenderungen triggern Hot-Reload! Das muss raus.
-  - Secrets (API Keys, Tokens) koennen in .env bleiben
-  - Config (Port, Engine, Stimme) gehoert in Plugin-JSON
-- [ ] **Plugin-eigenes i18n System** — jedes Plugin bringt eigene Uebersetzungen mit (min. DE/EN)
-- [ ] **Credential-Modal Label-Rendering fixen** — zeigt i18n Keys statt Klartext (`label_key` → `t(label_key)`)
+
+**Ziel:** Jedes Plugin ist eine selbststaendige, portable Einheit. Ordner loeschen = alles weg,
+keine Leichen in .env oder zentraler i18n.py.
+
+**Ordnerstruktur pro Plugin:**
+```
+aifred/plugins/channels/freeecho2_channel/
+    __init__.py          # Plugin-Code
+    i18n.json            # Eigene Uebersetzungen (min. DE/EN)
+    settings.json        # Persistierte Settings (Port, Engine etc.)
+```
+
+**Grenze .env vs settings.json:**
+- **.env**: NUR echte Secrets (Passwoerter, API Keys, Tokens) + ENABLED-Flags
+- **settings.json im Plugin-Ordner**: Alles andere (Ports, Engines, Stimmen, Thresholds)
+
+**Konkret pro Plugin:**
+- FreeEcho.2: Null .env-Eintraege (keine Secrets), alles in settings.json
+- Email: IMAP/SMTP Passwort → .env, Rest (Server, Port, Allowed Senders) → settings.json
+- Telegram: Bot Token → .env, Rest → settings.json
+- Discord: Bot Token → .env, Rest → settings.json
+- EPIM: Alles in settings.json (kein Secret)
+- Translator: API Key → .env
+
+**Umsetzungsschritte:**
+- [ ] `CredentialField` um `is_secret: bool = False` erweitern
+- [ ] Plugin-eigene `settings.json` lesen/schreiben (statt .env fuer non-secrets)
+- [ ] `credential_broker` aus beiden Quellen lesen (.env fuer Secrets, settings.json fuer Config)
+- [ ] **Plugin-eigenes i18n** — `i18n.json` im Plugin-Ordner, wird beim Laden des Plugins registriert
+  - Zentrale i18n.py entschlanken: Plugin-spezifische Keys raus
+  - Plugin liefert eigene Uebersetzungen (min. DE/EN)
+- [ ] **Credential-Modal Label-Rendering fixen** — zeigt i18n Keys statt Klartext
 - [ ] Modal-Titel nutzt display_name + i18n "Einstellungen"/"Settings"
+- [ ] Migration: bestehende .env-Eintraege in settings.json ueberfuehren (einmalig)
 
 ### FreeEcho.2 Plugin
 - [ ] TTS Voice Dropdown dynamisch (abhaengig von gewaehlter Engine, verfuegbare Stimmen auflisten)
