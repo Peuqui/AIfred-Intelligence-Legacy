@@ -28,10 +28,11 @@ from typing import TYPE_CHECKING
 from ....lib.plugin_base import BaseChannel, CredentialField
 
 if TYPE_CHECKING:
+    from aiohttp.web import Request, WebSocketResponse
     from ....lib.envelope import InboundMessage, OutboundMessage
 
-# Connected FreeEcho.2 devices: room_name → websocket
-_devices: dict[str, object] = {}
+# Connected FreeEcho.2 devices: room_name → WebSocketResponse
+_devices: dict[str, WebSocketResponse] = {}
 # Pending TTS responses: room_name → asyncio.Future
 _pending_responses: dict[str, asyncio.Future] = {}
 
@@ -88,30 +89,14 @@ class FreeEchoChannel(BaseChannel):
 
     def apply_credentials(self, values: dict[str, str]) -> None:
         from ....lib.credential_broker import broker
-        from ....lib.tts_engine_manager import switch_tts_engine
 
         broker.set_runtime("freeecho2", "enabled", "true")
         port = values.get("FREEECHO2_PORT", str(_DEFAULT_PORT))
         broker.set_runtime("freeecho2", "port", port)
 
+        # Engine setting is saved here, actual start happens on first Puck request
+        # via ensure_engine_ready() in _run_tts()
         new_engine = values.get("FREEECHO2_TTS_ENGINE", "piper")
-        old_engine = broker.get("freeecho2", "tts_engine") or None
-
-        # Engine switch with VRAM management (same logic as browser UI)
-        if new_engine != old_engine:
-            # Get current LLM backend type for VRAM orchestration
-            from ....state._base import _global_backend_state
-            backend_type = _global_backend_state.get("backend_type") or "llamacpp"
-
-            result = switch_tts_engine(
-                new_engine=new_engine,
-                old_engine=old_engine,
-                backend_type=backend_type,
-                on_status=lambda msg: self.channel_log(f"TTS switch: {msg}"),
-            )
-            if not result.success:
-                self.channel_log(f"TTS engine switch failed: {'; '.join(result.messages)}", "error")
-
         broker.set_runtime("freeecho2", "tts_engine", new_engine)
 
         tts_voice = values.get("FREEECHO2_TTS_VOICE", "de_DE-thorsten-high")
@@ -150,7 +135,7 @@ class FreeEchoChannel(BaseChannel):
         finally:
             await runner.cleanup()
 
-    async def _handle_ws(self, request: object) -> object:
+    async def _handle_ws(self, request: Request) -> WebSocketResponse:
         """Handle a single FreeEcho.2 WebSocket connection."""
         from aiohttp import web, WSMsgType
 
@@ -190,7 +175,7 @@ class FreeEchoChannel(BaseChannel):
 
         return ws
 
-    async def _handle_text(self, ws: object, data: str, room: str) -> None:
+    async def _handle_text(self, ws: WebSocketResponse, data: str, room: str) -> None:
         """Handle text message from FreeEcho.2 device."""
         try:
             msg = json.loads(data)
@@ -208,7 +193,7 @@ class FreeEchoChannel(BaseChannel):
             # For now just acknowledge
             await ws.send_str(json.dumps({"type": "status", "message": "ready"}))
 
-    async def _handle_audio(self, ws: object, audio_data: bytes, room: str) -> None:
+    async def _handle_audio(self, ws: WebSocketResponse, audio_data: bytes, room: str) -> None:
         """Handle binary audio from FreeEcho.2 device.
 
         Audio is raw PCM: 16kHz, mono, int16 (little-endian).
@@ -352,10 +337,32 @@ class FreeEchoChannel(BaseChannel):
                 offset = end
             await ws.send_str(json.dumps({"type": "audio_end"}))
             self.channel_log(f"[FreeEcho.2 {room}] Audio transfer complete")
+
+            # Restart LLM backend in background (deferred from ensure_engine_ready)
+            # User hears the answer while LLM reloads with TTS-calibrated VRAM profile
+            await self._deferred_llm_restart()
         else:
             self.channel_log(f"[FreeEcho.2 {room}] TTS conversion failed", "error")
 
         Path(tts_path).unlink(missing_ok=True)
+
+    async def _deferred_llm_restart(self) -> None:
+        """Restart LLM backend in background after TTS audio was sent.
+
+        Called after deferred engine start — TTS generated audio with
+        defer_llm_restart=True, now restart LLM with TTS-calibrated VRAM.
+        """
+        from ....lib.tts_engine_manager import restart_llm_backend
+        from ....state._base import _global_backend_state
+        backend_type = _global_backend_state.get("backend_type") or "llamacpp"
+
+        self.channel_log("LLM backend restart (TTS-calibrated VRAM)...")
+        await asyncio.get_event_loop().run_in_executor(
+            None, lambda: restart_llm_backend(
+                backend_type,
+                on_status=lambda msg: self.channel_log(f"LLM: {msg}"),
+            )
+        )
 
     async def _run_tts(self, text: str, agent: str = "aifred") -> str | None:
         """Generate TTS audio file from text. Returns absolute file path.
@@ -374,10 +381,20 @@ class FreeEchoChannel(BaseChannel):
         # Engine from plugin settings
         engine = broker.get("freeecho2", "tts_engine") or "piper"
 
-        # Ensure GPU-based TTS container is running (lazy start)
+        # Ensure GPU-based TTS container is running (full VRAM management)
+        # defer_llm_restart=True: TTS generates audio first, LLM restarts
+        # in background while audio is sent to Puck (pipelining)
         if engine in GPU_ENGINES:
+            from ....state._base import _global_backend_state
+            backend_type = _global_backend_state.get("backend_type") or "llamacpp"
+
             ready = await asyncio.get_event_loop().run_in_executor(
-                None, lambda: ensure_engine_ready(engine)
+                None, lambda: ensure_engine_ready(
+                    engine,
+                    backend_type=backend_type,
+                    on_status=lambda msg: self.channel_log(f"TTS: {msg}"),
+                    defer_llm_restart=True,
+                )
             )
             if not ready.success:
                 self.channel_log(f"TTS engine {engine} not ready: {'; '.join(ready.messages)}", "error")
@@ -393,33 +410,33 @@ class FreeEchoChannel(BaseChannel):
         # User setting wins, then default, then hardcoded fallback
         voice = ""
         if isinstance(user_cfg, dict):
-            voice = user_cfg.get("voice", "")
+            voice = str(user_cfg.get("voice", ""))
         elif isinstance(user_cfg, str):
             voice = user_cfg
         if not voice:
-            voice = default_cfg.get("voice", "Deutsch (Thorsten)")
+            voice = str(default_cfg.get("voice", "Deutsch (Thorsten)"))
 
-        speed_str = default_cfg.get("speed", "1.0")
+        speed_str = str(default_cfg.get("speed", "1.0"))
         if isinstance(user_cfg, dict) and user_cfg.get("speed"):
-            speed_str = user_cfg["speed"]
+            speed_str = str(user_cfg["speed"])
         speed = float(speed_str.replace("x", ""))
 
-        pitch_str = default_cfg.get("pitch", "1.0")
+        pitch_str = str(default_cfg.get("pitch", "1.0"))
         if isinstance(user_cfg, dict) and user_cfg.get("pitch"):
-            pitch_str = user_cfg["pitch"]
+            pitch_str = str(user_cfg["pitch"])
         pitch = float(pitch_str)
 
         self.channel_log(f"TTS: engine={engine}, agent={agent}, voice={voice}, speed={speed}, pitch={pitch}")
 
         try:
             from ....lib.audio_processing import generate_tts
-            url_path = await generate_tts(text, voice, speed, engine, pitch=pitch, agent=agent)
-            if not url_path:
+            result: str | None = await generate_tts(text, voice, speed, engine, pitch=pitch, agent=agent)
+            if not result:
                 return None
             # Convert URL path (/_upload/tts_audio/xxx.wav) to absolute file path
-            if url_path.startswith("/_upload/"):
-                return str(PROJECT_ROOT / "data" / url_path.removeprefix("/_upload/"))
-            return url_path
+            if result.startswith("/_upload/"):
+                return str(PROJECT_ROOT / "data" / result.removeprefix("/_upload/"))
+            return result
         except Exception as e:
             self.channel_log(f"TTS ({engine}) failed: {e}", "error")
             return None

@@ -281,12 +281,17 @@ class TTSConfigMixin(rx.State, mixin=True):
         yield
 
         # Delegate container lifecycle to tts_engine_manager
+        # defer_llm_restart=True: same path as FreeEcho.2 (SSOT)
+        # Browser has no TTS work between switch and restart, so restart follows immediately
+        from ..lib.tts_engine_manager import restart_llm_backend
+
         result = switch_tts_engine(
             new_engine=key,
             old_engine=old_key if was_enabled else None,
             backend_type=self.backend_type,  # type: ignore[attr-defined]
             xtts_force_cpu=self.xtts_force_cpu,
             on_status=lambda msg: self.add_debug(f"🔊 {msg}"),  # type: ignore[attr-defined]
+            defer_llm_restart=True,
         )
 
         # Update MOSS device state
@@ -299,6 +304,10 @@ class TTSConfigMixin(rx.State, mixin=True):
 
         if not result.success:
             self.add_debug(f"⚠️ Engine switch incomplete: {'; '.join(result.messages)}")  # type: ignore[attr-defined]
+
+        # Restart LLM backend (no TTS work to do in browser, so restart immediately)
+        if result.success and key in ("xtts", "moss"):
+            restart_llm_backend(self.backend_type, on_status=lambda msg: self.add_debug(f"🔄 {msg}"))  # type: ignore[attr-defined]
 
         yield
 
