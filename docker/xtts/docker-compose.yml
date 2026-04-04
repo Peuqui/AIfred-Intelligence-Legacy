@@ -3,7 +3,7 @@ services:
     image: xtts-rtx8000
     build: .
     container_name: xtts
-    restart: "unless-stopped"  # Auto-restart after KEEP_ALIVE shutdown
+    restart: "no"  # Started/stopped by AIfred (ensure_engine_ready / switch_tts_engine)
     ports:
       - "5051:5051"
     deploy:
