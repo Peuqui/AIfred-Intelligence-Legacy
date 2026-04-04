@@ -239,6 +239,12 @@ class AIState(  # type: ignore[misc]
             status = notification.get("status", "received")
             self.refresh_session_list()
 
+            # Ghost browser controls as soon as Hub message arrives (not just processing)
+            if status in ("received", "processing"):
+                self.is_generating = True
+            elif status in ("done", "error"):
+                self.is_generating = False
+
             # Phase-dependent toast (same id="hub" → replaces previous)
             toast_style = {"width": "420px"}
             toast_kwargs = dict(id="hub", position="top-center", style=toast_style)

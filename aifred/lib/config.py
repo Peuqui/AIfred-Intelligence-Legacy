@@ -931,16 +931,13 @@ def get_effective_model_from_settings(agent: str = "aifred") -> str:
         if speed_id in swap_cfg:
             return speed_id
 
-    # TTS variant
-    enable_tts = settings.get("enable_tts", False)
-    tts_engine = settings.get("tts_engine", "")
-    if enable_tts and backend_type == "llamacpp":
-        needs_gpu = False
-        if tts_engine == "xtts" and not settings.get("xtts_force_cpu", False):
-            needs_gpu = True
-        elif tts_engine == "moss":
-            needs_gpu = True
-        if needs_gpu:
+    # TTS variant — check if a GPU TTS container is actually running
+    # This works for both browser (enable_tts toggle) and Puck (TTS always on).
+    # Instead of relying on settings.json flags, check the real container state.
+    if backend_type == "llamacpp":
+        from .tts_engine_manager import _detect_running_tts_engine
+        tts_engine = _detect_running_tts_engine()
+        if tts_engine:
             tts_id = f"{base_id}-tts-{tts_engine}"
             from .llamacpp_calibration import parse_llamaswap_config
             swap_cfg = parse_llamaswap_config(Path(LLAMASWAP_CONFIG_PATH))

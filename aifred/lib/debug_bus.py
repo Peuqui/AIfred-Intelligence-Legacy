@@ -8,9 +8,8 @@ Usage:
 
     # Hub path: set session context once per request
     with session_scope(session_id):
-        debug("🔍 Web search started")   # → log + session file
-        debug("✅ 7 sources scraped")     # → log + session file
-    # On exit: batched write to session file + set_update_flag
+        debug("🔍 Web search started")   # → log + session file (immediate)
+        debug("✅ 7 sources scraped")     # → log + session file (immediate)
 
     # Browser path: state.add_debug() forwards to debug() internally
     # No session_scope needed — Reflex State handles live UI updates
@@ -29,36 +28,25 @@ _current_session: contextvars.ContextVar[str | None] = contextvars.ContextVar(
     "debug_bus_session", default=None
 )
 
-# Message buffer for the current session_scope (batched write on exit)
-_buffer: contextvars.ContextVar[list[str] | None] = contextvars.ContextVar(
-    "debug_bus_buffer", default=None
-)
-
 
 class session_scope:
     """Context manager that binds a session_id for debug message routing.
 
-    Messages emitted via debug() inside this scope are collected in a buffer.
-    On exit, the buffer is flushed once to the session file (batched I/O).
-    Nest-safe: restores previous values on exit.
+    Messages emitted via debug() inside this scope are written immediately
+    to the session file (one write per message) so the UI polling timer
+    can pick them up in near-realtime.
+    Nest-safe: restores previous session_id on exit.
     """
 
     def __init__(self, session_id: str | None) -> None:
         self._session_id = session_id
         self._session_token: contextvars.Token | None = None
-        self._buffer_token: contextvars.Token | None = None
 
     def __enter__(self) -> "session_scope":
         self._session_token = _current_session.set(self._session_id)
-        self._buffer_token = _buffer.set([])
         return self
 
     def __exit__(self, *exc: object) -> None:
-        messages = _buffer.get()
-        if messages and self._session_id:
-            _flush_to_session(self._session_id, messages)
-        if self._buffer_token is not None:
-            _buffer.reset(self._buffer_token)
         if self._session_token is not None:
             _current_session.reset(self._session_token)
 
@@ -67,30 +55,19 @@ def debug(msg: str) -> None:
     """Emit a debug message.
 
     - Always: writes to log_message() (logfile + console queue)
-    - If session_scope active: also buffers for session file (batched on scope exit)
+    - If session_scope active: writes immediately to session file
+      so the UI timer (1s polling) can pick it up in near-realtime.
 
     Args:
         msg: The debug message (without timestamp — added automatically).
     """
     log_message(msg)
 
-    buf = _buffer.get(None)
-    if buf is not None:
-        ts = datetime.now().strftime("%H:%M:%S")
-        buf.append(f"{ts} | {msg}")
-
-
-def flush() -> None:
-    """Manually flush buffered debug messages to the session file.
-
-    Call this mid-scope if you need messages to appear in the session
-    before the scope exits (e.g. between processing phases).
-    """
-    buf = _buffer.get(None)
     sid = _current_session.get()
-    if buf and sid:
-        _flush_to_session(sid, list(buf))
-        buf.clear()
+    if sid:
+        ts = datetime.now().strftime("%H:%M:%S")
+        _flush_to_session(sid, [f"{ts} | {msg}"])
+
 
 
 def _flush_to_session(session_id: str, messages: list[str]) -> None:

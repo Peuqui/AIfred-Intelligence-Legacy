@@ -400,26 +400,20 @@ class AgentConfigMixin(rx.State, mixin=True):
             return f"{base_id}-speed"
 
         # TTS on GPU: use TTS-calibrated variant (reduced -c for VRAM sharing)
-        if (
-            self.backend_type == "llamacpp"  # type: ignore[attr-defined]
-            and self.enable_tts  # type: ignore[attr-defined]
-        ):
-            tts_engine = self.tts_engine  # type: ignore[attr-defined]
-            needs_gpu = False
-            if tts_engine == "xtts" and not self.xtts_force_cpu:  # type: ignore[attr-defined]
-                needs_gpu = True
-            elif tts_engine == "moss":
-                needs_gpu = True  # MOSS always uses GPU
-
-            if needs_gpu:
+        # Check actual container state — Puck may have started TTS
+        # independently of the browser toggle.
+        if self.backend_type == "llamacpp":  # type: ignore[attr-defined]
+            from ..lib.tts_engine_manager import _detect_running_tts_engine
+            running_tts = _detect_running_tts_engine()
+            if running_tts:
                 from ..lib.llamacpp_calibration import parse_llamaswap_config
                 from ..lib.config import LLAMASWAP_CONFIG_PATH
-                tts_variant = f"{base_id}-tts-{tts_engine}"
+                tts_variant = f"{base_id}-tts-{running_tts}"
                 swap_cfg = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
                 if tts_variant in swap_cfg:
                     return tts_variant
                 from ..lib.logging_utils import log_message
-                log_message(f"⚠️ _effective_model_id: TTS variant {tts_variant} NOT in config (have: {list(swap_cfg.keys())})")
+                log_message(f"⚠️ _effective_model_id: TTS variant {tts_variant} NOT in config")
 
         return base_id
 

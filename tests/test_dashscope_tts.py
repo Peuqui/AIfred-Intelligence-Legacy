@@ -2,6 +2,8 @@
 
 Run: python tests/test_dashscope_tts.py
 Requires: DASHSCOPE_API_KEY in .env or environment
+
+NOT a pytest test — functions take explicit args, run via __main__ block.
 """
 
 import os

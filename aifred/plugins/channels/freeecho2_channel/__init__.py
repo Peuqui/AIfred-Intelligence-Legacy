@@ -80,7 +80,7 @@ class FreeEchoChannel(BaseChannel):
                 env_key="FREEECHO2_TTS_ENGINE",
                 label_key="freeecho2_cred_tts_engine",
                 placeholder="piper",
-                options=[("piper", "Piper"), ("edge", "Edge"), ("xtts", "XTTS"), ("moss", "MOSS"), ("espeak", "eSpeak")],
+                options=[("piper", "Piper"), ("edge", "Edge"), ("xtts", "XTTS"), ("moss", "MOSS-TTS"), ("espeak", "eSpeak")],
             ),
         ]
 
@@ -225,6 +225,23 @@ class FreeEchoChannel(BaseChannel):
 
         self.channel_log(f"[FreeEcho.2 {room}] WAV prepared ({_puck_time.monotonic()-_puck_t0:.2f}s)")
 
+        # Resolve session IMMEDIATELY so all debug messages (STT, TTS loading,
+        # model switching) reach the browser UI via session_scope.
+        from ....lib.routing_table import routing_table
+        from ....lib.session_storage import create_empty_session
+        from ....lib.config import MESSAGE_HUB_OWNER
+        from ....lib.debug_bus import debug, session_scope
+        from ....lib.message_processor import write_hub_notification
+        import secrets as _secrets
+
+        route = routing_table.get_route("freeecho2", room)
+        if route:
+            session_id = route.session_id
+        else:
+            session_id = _secrets.token_hex(16)
+            create_empty_session(session_id, owner=MESSAGE_HUB_OWNER)
+            routing_table.set_route("freeecho2", room, session_id)
+
         # Heartbeat task — sends heartbeat every 5s while processing
         heartbeat_running = True
 
@@ -237,32 +254,47 @@ class FreeEchoChannel(BaseChannel):
                 await asyncio.sleep(5)
 
         try:
-            # Run STT
-            text = await self._run_stt(wav_path)
-            if not text:
-                self.channel_log(f"[FreeEcho.2 {room}] STT returned empty text", "warning")
-                await ws.send_str(json.dumps({"type": "done", "reason": "stt_empty"}))
-                return
+            # Start session_scope so ALL debug messages go to the browser UI
+            with session_scope(session_id):
+                # Notify UI immediately — toast + ghosting BEFORE STT
+                write_hub_notification(session_id, f"FreeEcho.2 {room}", "FreeEcho.2", room, status="received")
+                debug(f"📨 FreeEcho.2: Audio von {room} ({duration:.1f}s)")
+                debug("🎤 STT läuft...")
 
-            self.channel_log(f"[FreeEcho.2 {room}] STT ({_puck_time.monotonic()-_puck_t0:.1f}s): {text}")
+                # Run STT
+                text = await self._run_stt(wav_path)
+                if not text:
+                    self.channel_log(f"[FreeEcho.2 {room}] STT returned empty text", "warning")
+                    debug("❌ STT: kein Text erkannt")
+                    await ws.send_str(json.dumps({"type": "done", "reason": "stt_empty"}))
+                    return
 
-            # Start heartbeat while LLM processes
-            await ws.send_str(json.dumps({"type": "processing"}))
-            heartbeat_task = asyncio.create_task(_heartbeat())
+                self.channel_log(f"[FreeEcho.2 {room}] STT ({_puck_time.monotonic()-_puck_t0:.1f}s): {text}")
+                debug(f"🎤 STT: \"{text}\" ({_puck_time.monotonic()-_puck_t0:.1f}s)")
+
+                # Start heartbeat BEFORE TTS check — TTS loading can take 30s+
+                await ws.send_str(json.dumps({"type": "processing"}))
+                heartbeat_task = asyncio.create_task(_heartbeat())
+
+                # Ensure TTS state (MOSS/XTTS loading, VRAM management).
+                # Messages go to UI via debug() (session context propagated to executor).
+                write_hub_notification(session_id, f"FreeEcho.2 {room}", "FreeEcho.2", room, status="processing")
+                tts_deferred = await self._ensure_tts_state()
+
+                self.channel_log(f"[FreeEcho.2 {room}] → process_inbound ({_puck_time.monotonic()-_puck_t0:.1f}s)")
 
             # Create inbound message and process through AIfred engine
+            # (process_inbound creates its own session_scope)
             inbound = InboundMessage(
                 channel="freeecho2",
                 channel_id=room,
                 sender=room,
                 text=text,
                 timestamp=datetime.now(timezone.utc),
-                metadata={"wav_path": wav_path, "room": room},
+                metadata={"wav_path": wav_path, "room": room, "tts_deferred": tts_deferred},
             )
 
             _devices[room] = ws
-
-            self.channel_log(f"[FreeEcho.2 {room}] → process_inbound ({_puck_time.monotonic()-_puck_t0:.1f}s)")
 
             # process_inbound calls send_reply automatically (via auto_reply)
             await process_inbound(inbound)
@@ -338,31 +370,98 @@ class FreeEchoChannel(BaseChannel):
             await ws.send_str(json.dumps({"type": "audio_end"}))
             self.channel_log(f"[FreeEcho.2 {room}] Audio transfer complete")
 
-            # Restart LLM backend in background (deferred from ensure_engine_ready)
-            # User hears the answer while LLM reloads with TTS-calibrated VRAM profile
-            await self._deferred_llm_restart()
+            # If TTS was deferred (LLM was already loaded with wrong profile),
+            # now switch TTS and restart LLM with correct profile (blocking).
+            if original and original.metadata.get("tts_deferred"):
+                await self._force_tts_switch()
         else:
             self.channel_log(f"[FreeEcho.2 {room}] TTS conversion failed", "error")
 
         Path(tts_path).unlink(missing_ok=True)
 
-    async def _deferred_llm_restart(self) -> None:
-        """Restart LLM backend in background after TTS audio was sent.
+    def _get_wanted_tts(self) -> str:
+        """Get the TTS engine this plugin wants."""
+        from ....lib.credential_broker import broker
+        return broker.get("freeecho2", "tts_engine") or "piper"
 
-        Called after deferred engine start — TTS generated audio with
-        defer_llm_restart=True, now restart LLM with TTS-calibrated VRAM.
-        """
-        from ....lib.tts_engine_manager import restart_llm_backend
+    def _get_backend_type(self) -> str:
+        """Get the current LLM backend type."""
         from ....state._base import _global_backend_state
-        backend_type = _global_backend_state.get("backend_type") or "llamacpp"
+        return _global_backend_state.get("backend_type") or "llamacpp"
 
-        self.channel_log("LLM backend restart (TTS-calibrated VRAM)...")
-        await asyncio.get_event_loop().run_in_executor(
-            None, lambda: restart_llm_backend(
-                backend_type,
-                on_status=lambda msg: self.channel_log(f"LLM: {msg}"),
-            )
-        )
+    async def _ensure_tts_state(self) -> bool:
+        """Ensure TTS state before LLM inference (SSOT: ensure_tts_state).
+
+        Returns True if deferred (LLM loaded, caller should inferize first).
+        Returns False if TTS is ready and LLM will load with correct profile.
+        """
+        from ....lib.tts_engine_manager import ensure_tts_state, GPU_ENGINES
+        from ....lib.debug_bus import debug, _current_session
+
+        wanted = self._get_wanted_tts()
+        if wanted not in GPU_ENGINES:
+            return False
+
+        backend_type = self._get_backend_type()
+
+        # Capture session_id from the calling coroutine's context
+        # so debug() in the executor thread can route to the session.
+        caller_session_id = _current_session.get()
+
+        def _run() -> bool:
+            # Propagate session context into executor thread
+            token = _current_session.set(caller_session_id) if caller_session_id else None
+            try:
+                gen = ensure_tts_state(
+                    wanted_tts=wanted,
+                    backend_type=backend_type,
+                    check_defer=True,
+                )
+                deferred = False
+                try:
+                    while True:
+                        msg = next(gen)
+                        self.channel_log(f"TTS: {msg}")
+                        debug(f"🔊 {msg}")
+                except StopIteration as e:
+                    if e.value:
+                        deferred = e.value.deferred
+                return deferred
+            finally:
+                if token is not None:
+                    _current_session.reset(token)
+
+        return await asyncio.get_event_loop().run_in_executor(None, _run)
+
+    async def _force_tts_switch(self) -> None:
+        """Force TTS switch after deferred inference (Puck optimization).
+
+        Called after LLM used existing model. Now: switch TTS, then
+        restart LLM with TTS-calibrated profile. All blocking, sequential.
+        """
+        from ....lib.tts_engine_manager import force_tts_switch
+        from ....lib.debug_bus import debug, _current_session
+
+        wanted = self._get_wanted_tts()
+        backend_type = self._get_backend_type()
+        caller_session_id = _current_session.get()
+
+        def _run() -> None:
+            token = _current_session.set(caller_session_id) if caller_session_id else None
+            try:
+                gen = force_tts_switch(wanted, backend_type)
+                try:
+                    while True:
+                        msg = next(gen)
+                        self.channel_log(f"TTS switch: {msg}")
+                        debug(f"🔊 {msg}")
+                except StopIteration:
+                    pass
+            finally:
+                if token is not None:
+                    _current_session.reset(token)
+
+        await asyncio.get_event_loop().run_in_executor(None, _run)
 
     async def _run_tts(self, text: str, agent: str = "aifred") -> str | None:
         """Generate TTS audio file from text. Returns absolute file path.
@@ -371,34 +470,15 @@ class FreeEchoChannel(BaseChannel):
         per-agent voice configuration from TTS_AGENT_VOICE_DEFAULTS.
         Independent of the browser UI TTS toggle.
 
-        Ensures GPU-based TTS containers are running before generation.
+        TTS container readiness is ensured by _ensure_tts_state() / _force_tts_switch()
+        BEFORE this method is called. No VRAM management here.
         """
         from ....lib.credential_broker import broker
         from ....lib.config import PROJECT_ROOT, TTS_AGENT_VOICE_DEFAULTS
         from ....lib.settings import load_settings
-        from ....lib.tts_engine_manager import ensure_engine_ready, GPU_ENGINES
 
         # Engine from plugin settings
         engine = broker.get("freeecho2", "tts_engine") or "piper"
-
-        # Ensure GPU-based TTS container is running (full VRAM management)
-        # defer_llm_restart=True: TTS generates audio first, LLM restarts
-        # in background while audio is sent to Puck (pipelining)
-        if engine in GPU_ENGINES:
-            from ....state._base import _global_backend_state
-            backend_type = _global_backend_state.get("backend_type") or "llamacpp"
-
-            ready = await asyncio.get_event_loop().run_in_executor(
-                None, lambda: ensure_engine_ready(
-                    engine,
-                    backend_type=backend_type,
-                    on_status=lambda msg: self.channel_log(f"TTS: {msg}"),
-                    defer_llm_restart=True,
-                )
-            )
-            if not ready.success:
-                self.channel_log(f"TTS engine {engine} not ready: {'; '.join(ready.messages)}", "error")
-                return None
 
         # Voice priority: 1. User settings (per engine+agent), 2. Defaults, 3. Fallback
         settings = load_settings() or {}

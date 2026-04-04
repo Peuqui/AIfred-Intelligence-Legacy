@@ -331,7 +331,7 @@ def restart_llama_swap() -> bool:
         return False
 
 
-def unload_all_gpu_models(backend_type: str = "llamacpp") -> list[str]:
+def unload_all_gpu_models(backend_type: str = "llamacpp", keep_tts: str = "") -> list[str]:
     """Unload all GPU-resident models (LLM + TTS) to free VRAM.
 
     Central function — single source of truth for GPU cleanup.
@@ -339,6 +339,7 @@ def unload_all_gpu_models(backend_type: str = "llamacpp") -> list[str]:
 
     Args:
         backend_type: Active LLM backend ("llamacpp", "ollama", "vllm", "tabbyapi")
+        keep_tts: TTS engine to keep running ("xtts" or "moss"). Empty = stop all.
 
     Returns list of actions taken.
     """
@@ -378,20 +379,22 @@ def unload_all_gpu_models(backend_type: str = "llamacpp") -> list[str]:
         except Exception:
             pass
 
-    # 2. Stop all TTS containers
-    try:
-        from .config import XTTS_DOCKER_COMPOSE_PATH
-        _docker_compose_action(XTTS_DOCKER_COMPOSE_PATH, "down", "XTTS")
-        actions.append("XTTS stopped")
-    except Exception:
-        pass
+    # 2. Stop TTS containers (skip the one we want to keep)
+    if keep_tts != "xtts":
+        try:
+            from .config import XTTS_DOCKER_COMPOSE_PATH
+            _docker_compose_action(XTTS_DOCKER_COMPOSE_PATH, "down", "XTTS")
+            actions.append("XTTS stopped")
+        except Exception:
+            pass
 
-    try:
-        from .config import MOSS_TTS_DOCKER_COMPOSE_PATH
-        _docker_compose_action(MOSS_TTS_DOCKER_COMPOSE_PATH, "down", "MOSS-TTS")
-        actions.append("MOSS-TTS stopped")
-    except Exception:
-        pass
+    if keep_tts != "moss":
+        try:
+            from .config import MOSS_TTS_DOCKER_COMPOSE_PATH
+            _docker_compose_action(MOSS_TTS_DOCKER_COMPOSE_PATH, "down", "MOSS-TTS")
+            actions.append("MOSS-TTS stopped")
+        except Exception:
+            pass
 
     log_message(f"GPU cleanup: {', '.join(actions) if actions else 'nothing to unload'}")
     return actions

@@ -4,13 +4,15 @@ Handles VRAM management, Docker container start/stop, and LLM backend
 restart when switching between TTS engines. Used by both the browser UI
 (Reflex state) and headless channels (FreeEcho.2, future voice control).
 
-All functions are synchronous and blocking — callers handle async if needed.
+Central function: ensure_tts_state(wanted_tts, backend_type)
+- Both browser and Puck call this with what they want.
+- It checks what's running, and adjusts if needed.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Callable
+from typing import Generator
 
 from .logging_utils import log_message
 
@@ -23,200 +25,220 @@ LIGHTWEIGHT_ENGINES = {"piper", "edge", "espeak", "dashscope"}
 
 
 @dataclass
-class SwitchResult:
-    """Result of a TTS engine switch operation."""
+class TTSState:
+    """Result of ensure_tts_state check."""
 
-    success: bool
+    success: bool = True
+    changed: bool = False           # True if VRAM state was modified
+    deferred: bool = False          # True if LLM is loaded and caller should inferize first
     messages: list[str] = field(default_factory=list)
-    # MOSS-specific: which device the model loaded on ("cuda", "cpu", "")
     moss_device: str = ""
 
 
-def _emit(on_status: Callable[[str], None] | None, msg: str) -> None:
-    """Send status message to callback and log."""
-    log_message(msg)
-    if on_status:
-        on_status(msg)
+def _detect_running_tts_engine() -> str:
+    """Detect which GPU TTS engine is currently running via health check.
+
+    Returns engine key ("xtts" or "moss") if running, empty string if none.
+    Fast: only HTTP health checks, no Docker commands.
+    """
+    import requests
+
+    from .config import XTTS_SERVICE_URL, MOSS_TTS_SERVICE_URL
+
+    try:
+        r = requests.get(f"{XTTS_SERVICE_URL}/health", timeout=1)
+        if r.ok and r.json().get("model_loaded"):
+            return "xtts"
+    except OSError:
+        pass
+
+    try:
+        r = requests.get(f"{MOSS_TTS_SERVICE_URL}/health", timeout=1)
+        if r.ok and r.json().get("model_loaded"):
+            return "moss"
+    except OSError:
+        pass
+
+    return ""
 
 
-def stop_engine(engine: str, on_status: Callable[[str], None] | None = None) -> list[str]:
-    """Stop a running TTS engine container. Returns list of actions taken."""
+def _is_llm_loaded(backend_type: str) -> bool:
+    """Check if an LLM is currently loaded in VRAM."""
+    if backend_type != "llamacpp":
+        return False
+    try:
+        import requests
+        r = requests.get("http://localhost:8099/running", timeout=2)
+        if r.ok:
+            models = r.json()
+            return len(models) > 0
+    except OSError:
+        pass
+    return False
+
+
+def stop_engine(engine: str) -> tuple[bool, str]:
+    """Stop a running TTS engine container."""
     from .process_utils import stop_xtts_container, stop_moss_container
 
-    actions: list[str] = []
-
     if engine == "xtts":
-        success, msg = stop_xtts_container()
-        if success:
-            _emit(on_status, "XTTS container stopped")
-            actions.append("XTTS stopped")
-        else:
-            _emit(on_status, f"XTTS stop failed: {msg}")
+        return stop_xtts_container()
     elif engine == "moss":
-        success, msg = stop_moss_container()
-        if success:
-            _emit(on_status, "MOSS-TTS container stopped")
-            actions.append("MOSS-TTS stopped")
-        else:
-            _emit(on_status, f"MOSS-TTS stop failed: {msg}")
-
-    return actions
+        return stop_moss_container()
+    return True, ""
 
 
-def start_engine(
-    engine: str,
-    xtts_force_cpu: bool = False,
-    on_status: Callable[[str], None] | None = None,
-) -> SwitchResult:
-    """Start a TTS engine container. Returns result with status."""
-    from .process_utils import set_xtts_cpu_mode, ensure_moss_ready
-
-    if engine == "xtts":
-        from .process_utils import ensure_xtts_ready
-        success, msg = set_xtts_cpu_mode(xtts_force_cpu)
-        _emit(on_status, msg)
-        if not success:
-            return SwitchResult(success=False, messages=[msg])
-        # Wait for model to load (set_xtts_cpu_mode only starts the container)
-        success, ready_msg = ensure_xtts_ready(timeout=60)
-        _emit(on_status, ready_msg)
-        return SwitchResult(success=success, messages=[msg, ready_msg])
-
-    elif engine == "moss":
-        _emit(on_status, "MOSS-TTS: Loading model...")
-        success, msg, device = ensure_moss_ready(timeout=120)
-        _emit(on_status, msg)
-        return SwitchResult(success=success, messages=[msg], moss_device=device)
-
-    # Lightweight engines need no container
-    return SwitchResult(success=True, messages=[f"{engine} ready (no container needed)"])
-
-
-def ensure_engine_ready(
-    engine: str,
+def ensure_tts_state(
+    wanted_tts: str,
     backend_type: str = "llamacpp",
     xtts_force_cpu: bool = False,
-    on_status: Callable[[str], None] | None = None,
-    defer_llm_restart: bool = False,
-) -> SwitchResult:
-    """Ensure a TTS engine is ready (container running, model loaded).
+    check_defer: bool = False,
+) -> Generator[str, None, TTSState]:
+    """Ensure VRAM state matches TTS requirements. Yields status after each step.
 
-    For lightweight engines (piper, edge, espeak): always a no-op success.
-    For GPU engines (xtts, moss): checks health first. If already running,
-    returns immediately. If not running, performs full VRAM-managed startup
-    via switch_tts_engine() — same path as the browser UI.
-
-    This ensures the LLM is restarted with TTS-calibrated VRAM settings
-    (llama-swap YAML profiles account for TTS VRAM reservation).
-    """
-    if engine not in GPU_ENGINES:
-        return SwitchResult(success=True)
-
-    # Fast path: check if already running via health endpoint
-    import requests
-    if engine == "xtts":
-        from .config import XTTS_SERVICE_URL
-        try:
-            r = requests.get(f"{XTTS_SERVICE_URL}/health", timeout=2)
-            if r.ok and r.json().get("model_loaded"):
-                _emit(on_status, f"XTTS already ready ({r.json().get('device', '?')})")
-                return SwitchResult(success=True, messages=["XTTS already running"])
-        except OSError:
-            pass
-    elif engine == "moss":
-        from .config import MOSS_TTS_SERVICE_URL
-        try:
-            r = requests.get(f"{MOSS_TTS_SERVICE_URL}/health", timeout=2)
-            if r.ok and r.json().get("model_loaded"):
-                device = r.json().get("device", "?")
-                _emit(on_status, f"MOSS-TTS already ready ({device})")
-                return SwitchResult(success=True, messages=["MOSS-TTS already running"], moss_device=device)
-        except OSError:
-            pass
-
-    # Slow path: full VRAM-managed startup (same as browser engine switch)
-    _emit(on_status, f"{engine.upper()} not running — starting with VRAM management")
-    return switch_tts_engine(
-        new_engine=engine,
-        old_engine=None,
-        backend_type=backend_type,
-        xtts_force_cpu=xtts_force_cpu,
-        on_status=on_status,
-        defer_llm_restart=defer_llm_restart,
-    )
-
-
-def switch_tts_engine(
-    new_engine: str,
-    old_engine: str | None = None,
-    backend_type: str = "llamacpp",
-    xtts_force_cpu: bool = False,
-    on_status: Callable[[str], None] | None = None,
-    defer_llm_restart: bool = False,
-) -> SwitchResult:
-    """Switch from one TTS engine to another with full VRAM management.
-
-    Orchestrates the complete engine switch:
-    1. Stop old engine container (if GPU-based)
-    2. Free VRAM (if new engine needs GPU)
-    3. Start new engine container
-    4. Restart LLM backend (unless defer_llm_restart=True)
+    This is the SINGLE SOURCE OF TRUTH for TTS state management.
+    Both browser and Puck call this with what they want.
 
     Args:
-        new_engine: Target engine key ("xtts", "moss", "piper", "edge", "espeak", "dashscope")
-        old_engine: Currently active engine key (None = unknown/first start)
-        backend_type: Active LLM backend ("llamacpp", "ollama", "vllm", "tabbyapi")
-        xtts_force_cpu: Force XTTS to CPU mode (only relevant for xtts engine)
-        on_status: Optional callback for status messages (e.g. add_debug, channel_log)
-        defer_llm_restart: If True, skip LLM restart — caller handles it
-            (e.g. FreeEcho.2: TTS generates audio first, LLM restarts in background)
+        wanted_tts: Desired TTS engine ("xtts", "moss", or "" for none)
+        backend_type: Active LLM backend ("llamacpp", "ollama", etc.)
+        xtts_force_cpu: Force XTTS to CPU mode (no VRAM needed)
+        check_defer: If True and LLM is loaded, return deferred=True
+                     so caller can inferize first before switching.
+                     (Puck optimization: use existing LLM, switch after)
+
+    Yields:
+        Status messages after each blocking step.
 
     Returns:
-        SwitchResult with success flag, messages, and optional moss_device.
+        TTSState with success, changed, deferred flags.
     """
-    result = SwitchResult(success=True)
-    needs_vram = new_engine in GPU_ENGINES
+    # XTTS CPU mode doesn't need GPU VRAM
+    if wanted_tts == "xtts" and xtts_force_cpu:
+        wanted_tts = ""
 
-    # Step 1: Stop old engine container
-    if old_engine and old_engine in GPU_ENGINES and old_engine != new_engine:
-        actions = stop_engine(old_engine, on_status)
-        result.messages.extend(actions)
+    # Lightweight engines don't need VRAM management
+    if wanted_tts and wanted_tts not in GPU_ENGINES:
+        return TTSState(success=True)
 
-    # Step 2: Free VRAM if new engine needs GPU
-    if needs_vram:
-        from .process_utils import unload_all_gpu_models
-        actions = unload_all_gpu_models(backend_type)
-        if actions:
-            msg = f"VRAM freed: {', '.join(actions)}"
-            _emit(on_status, msg)
-            result.messages.append(msg)
+    running = _detect_running_tts_engine()
 
-    # Step 3: Start new engine
-    start_result = start_engine(new_engine, xtts_force_cpu, on_status)
-    result.success = start_result.success
-    result.messages.extend(start_result.messages)
-    result.moss_device = start_result.moss_device
+    # Case 1: Already correct
+    if running == wanted_tts:
+        if running:
+            yield f"{running.upper()} already running"
+        return TTSState(success=True)
 
-    # Step 4: Restart LLM backend (unless deferred)
-    if needs_vram and not defer_llm_restart:
-        restart_llm_backend(backend_type, on_status)
+    # Case 2: Puck optimization — LLM loaded, wrong/no TTS
+    # Caller can inferize with current LLM first, then switch
+    if check_defer and wanted_tts and _is_llm_loaded(backend_type):
+        yield "LLM loaded, deferring TTS switch to after inference"
+        return TTSState(success=True, deferred=True)
 
-    return result
+    # Case 3: Want TTS but wrong/none running → switch
+    if wanted_tts:
+        yield from _do_switch(wanted_tts, running, backend_type, xtts_force_cpu)
+        # Get final state
+        final_running = _detect_running_tts_engine()
+        return TTSState(
+            success=final_running == wanted_tts,
+            changed=True,
+            messages=[],
+        )
+
+    # Case 4: Don't want TTS but one is running → stop it
+    if running:
+        yield f"Stopping {running.upper()} (not needed)..."
+        success, msg = stop_engine(running)
+        yield msg
+        return TTSState(success=success, changed=True)
+
+    return TTSState(success=True)
+
+
+def _do_switch(
+    new_engine: str,
+    old_engine: str,
+    backend_type: str,
+    xtts_force_cpu: bool,
+) -> Generator[str, None, None]:
+    """Execute the actual TTS engine switch. Yields status after each step.
+
+    Steps (all blocking, sequential):
+    1. Stop old TTS container (if different one running)
+    2. Free VRAM (stop LLM, stop other TTS containers)
+    3. Start new TTS container + wait for model load
+    4. Restart LLM backend with TTS-calibrated profile
+    """
+    from .process_utils import unload_all_gpu_models
+
+    # Step 1: Stop old engine
+    if old_engine and old_engine in GPU_ENGINES:
+        success, msg = stop_engine(old_engine)
+        status = f"{old_engine.upper()} stopped" if success else f"{old_engine.upper()} stop failed: {msg}"
+        log_message(status)
+        yield status
+
+    # Step 2: Free VRAM (LLM + any remaining TTS, but keep the target)
+    actions = unload_all_gpu_models(backend_type, keep_tts=new_engine)
+    if actions:
+        status = f"VRAM freed: {', '.join(actions)}"
+        log_message(status)
+        yield status
+
+    # Step 3: Start new engine + wait for model load
+    if new_engine == "xtts":
+        from .process_utils import set_xtts_cpu_mode, ensure_xtts_ready
+
+        success, msg = set_xtts_cpu_mode(xtts_force_cpu)
+        log_message(msg)
+        yield msg
+
+        if success:
+            success, ready_msg = ensure_xtts_ready(timeout=60)
+            log_message(ready_msg)
+            yield ready_msg
+
+    elif new_engine == "moss":
+        from .process_utils import ensure_moss_ready
+
+        yield "MOSS-TTS: Loading model..."
+        success, msg, device = ensure_moss_ready(timeout=120)
+        log_message(msg)
+        yield msg
+
+    # Step 4: Restart LLM with TTS-calibrated profile
+    restart_llm_backend(backend_type)
+    yield "LLM restarted with TTS-calibrated profile"
+
+
+def force_tts_switch(
+    wanted_tts: str,
+    backend_type: str = "llamacpp",
+    xtts_force_cpu: bool = False,
+) -> Generator[str, None, TTSState]:
+    """Force TTS switch after deferred inference (Puck optimization).
+
+    Called after Puck has used the existing LLM for inference.
+    Now switch TTS (blocking) and restart LLM with correct profile.
+    """
+    running = _detect_running_tts_engine()
+    if running == wanted_tts:
+        return TTSState(success=True)
+
+    yield from _do_switch(wanted_tts, running, backend_type, xtts_force_cpu)
+
+    final_running = _detect_running_tts_engine()
+    return TTSState(success=final_running == wanted_tts, changed=True)
 
 
 def restart_llm_backend(
     backend_type: str = "llamacpp",
-    on_status: Callable[[str], None] | None = None,
 ) -> bool:
-    """Restart the LLM backend (after VRAM was freed for TTS).
-
-    Exposed as public function so callers with defer_llm_restart=True
-    can restart the LLM at the right time (e.g. after TTS is done).
-    """
+    """Restart the LLM backend with current VRAM profile."""
     if backend_type == "llamacpp":
         from .process_utils import start_llama_swap
         if start_llama_swap():
-            _emit(on_status, "llama-swap restarted")
+            log_message("llama-swap restarted")
             return True
-    # Ollama/vLLM/TabbyAPI restart automatically on next request
     return False

@@ -70,7 +70,6 @@ def _discover_channels() -> None:
                 obj = getattr(mod, attr_name)
                 if isinstance(obj, BaseChannel) and obj.name not in _channels:
                     _channels[obj.name] = obj
-                    obj.migrate_from_env()
                     obj.load_settings_to_env()
                     log_message(f"Plugin Registry: channel '{obj.name}' registered")
         except Exception as exc:

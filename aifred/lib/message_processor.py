@@ -22,13 +22,13 @@ from .session_storage import create_empty_session, update_chat_data, set_update_
 _NOTIFICATION_FILE = None
 
 
-def _get_notification_path() -> "Path":
+def _get_notification_path() -> Path:
     global _NOTIFICATION_FILE
     if _NOTIFICATION_FILE is None:
         from .config import DATA_DIR
         _NOTIFICATION_FILE = DATA_DIR / "message_hub" / "notification.json"
         _NOTIFICATION_FILE.parent.mkdir(parents=True, exist_ok=True)
-    return _NOTIFICATION_FILE
+    return _NOTIFICATION_FILE  # type: ignore[no-any-return]
 
 
 def write_hub_notification(
@@ -96,6 +96,10 @@ async def detect_target_agent_via_llm(text: str) -> tuple[str, str, str]:
     """Detect target agent, intent and language via LLM — same pipeline as browser.
 
     Uses detect_query_intent_and_addressee() — single source of truth.
+    Model is resolved via get_effective_model_from_settings() so that
+    TTS-calibrated profiles (e.g. "-tts-moss") are used when a GPU TTS
+    engine is running. Otherwise llama-swap would try to load the base
+    profile which segfaults due to insufficient VRAM.
 
     Returns:
         (agent_id, intent, detected_language)
@@ -103,13 +107,13 @@ async def detect_target_agent_via_llm(text: str) -> tuple[str, str, str]:
     from .intent_detector import detect_query_intent_and_addressee
     from .llm_client import LLMClient
     from .settings import load_settings
+    from .config import get_effective_model_from_settings
 
     settings = load_settings() or {}
     backend_type = settings.get("backend_type", "llamacpp")
 
-    # Resolve automatik model (same logic as browser)
-    backend_models = settings.get("backend_models", {}).get(backend_type, {})
-    automatik_model = backend_models.get("automatik_model", "") or backend_models.get("aifred_model", "")
+    # Resolve effective model (respects TTS/speed variants — same as _call_engine)
+    automatik_model = get_effective_model_from_settings("aifred")
 
     if not automatik_model:
         log_message("Message Processor: no model for intent detection, defaulting to aifred")
@@ -117,19 +121,15 @@ async def detect_target_agent_via_llm(text: str) -> tuple[str, str, str]:
 
     client = LLMClient(backend_type)
 
-    try:
-        intent, addressee, lang, _raw = await detect_query_intent_and_addressee(
-            user_query=text,
-            automatik_model=automatik_model,
-            llm_client=client,
-            automatik_num_ctx=None,
-        )
-        agent = addressee or "aifred"
-        log_message(f"🎯 Intent: {intent}, Addressee: {agent}, Lang: {lang.upper()}")
-        return agent, intent, lang
-    except Exception as e:
-        log_message(f"Message Processor: intent detection failed: {e}", "error")
-        return "aifred", "FAKTISCH", "de"
+    intent, addressee, lang, _raw = await detect_query_intent_and_addressee(
+        user_query=text,
+        automatik_model=automatik_model,
+        llm_client=client,
+        automatik_num_ctx=None,
+    )
+    agent = addressee or "aifred"
+    log_message(f"🎯 Intent: {intent}, Addressee: {agent}, Lang: {lang.upper()}")
+    return agent, intent, lang
 
 
 async def process_inbound(message: InboundMessage) -> Optional[OutboundMessage]:
@@ -138,7 +138,7 @@ async def process_inbound(message: InboundMessage) -> Optional[OutboundMessage]:
     Uses the Debug Bus (session_scope) so all debug() calls from any
     depth (tools, research, plugins) automatically go to the session.
     """
-    from .debug_bus import debug, session_scope, flush
+    from .debug_bus import debug, session_scope
     from .session_storage import get_session_title
     from .plugin_registry import get_channel
 
@@ -157,11 +157,8 @@ async def process_inbound(message: InboundMessage) -> Optional[OutboundMessage]:
         log_message(f"User mapping: {message.sender} -> {resolved_name}")
         message.sender = resolved_name
 
-    # 2. Detect target agent, intent and language via LLM (same as browser)
-    agent, intent, detected_lang = await detect_target_agent_via_llm(message.text)
-    message.target_agent = agent
-
-    # 2. Find or create session via routing table
+    # 2. Find or create session via routing table (BEFORE intent detection
+    #    so session_scope is active during LLM calls → debug messages go to UI)
     route = routing_table.get_route(message.channel, message.channel_id)
     subject = message.metadata.get("subject", "?")
 
@@ -183,23 +180,32 @@ async def process_inbound(message: InboundMessage) -> Optional[OutboundMessage]:
         write_hub_notification(session_id, title, channel_label, message.sender, status=status)
 
     # ── All phases run inside session_scope ────────────────────
+    # Intent detection runs INSIDE scope so its debug messages reach the UI.
     with session_scope(session_id):
 
-        # ── Phase 1: Show incoming message immediately ────────
-        from .agent_config import get_agent_config as _get_agent_cfg
-        _cfg = _get_agent_cfg(message.target_agent)
-        agent_display_name = _cfg.display_name if _cfg else message.target_agent.capitalize()
-
+        # ── Phase 0: Show incoming message immediately ────────
         debug(f"📨 {channel_label}: message from {message.sender}")
         if subject and subject != "?":
             debug(f"📧 Subject: {subject}")
+        _notify("received")
+
+        # ── Phase 1: Detect target agent via LLM ─────────────
+        debug(f"🎯 Intent detection: {message.text[:60]}...")
+        try:
+            agent, intent, detected_lang = await detect_target_agent_via_llm(message.text)
+        except Exception as e:
+            log_message(f"❌ Intent detection FAILED (no fallback): {e}", "error")
+            debug(f"❌ Intent detection FAILED: {e}")
+            raise
+        message.target_agent = agent
+
+        from .agent_config import get_agent_config as _get_agent_cfg
+        _cfg = _get_agent_cfg(message.target_agent)
+        agent_display_name = _cfg.display_name if _cfg else message.target_agent.capitalize()
         debug(f"🤖 Agent: {agent_display_name}")
 
         # Save incoming message to session (chat + llm history)
         _save_to_session(session_id, message, "")
-        flush()  # Write debug messages to session file immediately
-
-        _notify("received")
 
         # ── Phase 2: Call AIfred engine ───────────────────────
         _notify("processing")
@@ -273,7 +279,7 @@ async def process_inbound(message: InboundMessage) -> Optional[OutboundMessage]:
         # ── Phase 6: Notify UI that processing is complete ────
         _notify("done")
 
-    # session_scope exit: remaining buffered debug messages flushed to session file
+    # session_scope exit
     return outbound
 
 

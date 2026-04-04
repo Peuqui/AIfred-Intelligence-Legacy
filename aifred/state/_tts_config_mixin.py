@@ -190,49 +190,17 @@ class TTSConfigMixin(rx.State, mixin=True):
 
     # ── TTS Toggle / Engine Selection ─────────────────────────────
 
-    def toggle_tts(self):
-        """Toggle TTS on/off.
-
-        When GPU engine (XTTS/MOSS) is selected:
-        - TTS OFF: Stop container (free VRAM)
-        - TTS ON: Start container with current settings
-        """
-        from ..lib.tts_engine_manager import stop_engine, start_engine, GPU_ENGINES
-
-        self.enable_tts = not self.enable_tts
-        self.add_debug(f"🔊 TTS: {'enabled' if self.enable_tts else 'disabled'}")  # type: ignore[attr-defined]
-
-        if self.tts_engine in GPU_ENGINES:
-            if self.enable_tts:
-                result = start_engine(
-                    self.tts_engine,
-                    xtts_force_cpu=self.xtts_force_cpu,
-                    on_status=lambda msg: self.add_debug(f"✅ {msg}"),  # type: ignore[attr-defined]
-                )
-                if self.tts_engine == "moss":
-                    self.moss_tts_device = result.moss_device if result.success else ""
-                if self.tts_engine == "xtts" and result.success:
-                    self._refresh_xtts_voices()
-                if not result.success:
-                    self.add_debug(f"❌ {'; '.join(result.messages)}")  # type: ignore[attr-defined]
-            else:
-                stop_engine(self.tts_engine, on_status=lambda msg: self.add_debug(f"✅ {msg}"))  # type: ignore[attr-defined]
-                if self.tts_engine == "moss":
-                    self.moss_tts_device = ""
-
-        self._save_settings()  # type: ignore[attr-defined]
-
     def set_tts_engine_or_off(self, selection: str):
         """Combined TTS on/off + engine selection from single dropdown.
 
         Receives translated label from dropdown, maps to internal key.
         "Off"/"Aus" disables TTS, any engine label enables TTS.
 
-        Container lifecycle delegated to tts_engine_manager (Single Source of Truth).
-        Reflex-specific concerns (yield, state updates, settings save) stay here.
+        Uses switch_tts_engine() generator as SSOT — yields after each
+        status message for live Reflex UI updates.
         """
         from ..lib.i18n import tts_label_to_key
-        from ..lib.tts_engine_manager import stop_engine, switch_tts_engine, GPU_ENGINES
+        from ..lib.tts_engine_manager import ensure_tts_state, stop_engine, GPU_ENGINES
 
         key = tts_label_to_key(selection)
         if key == "off":
@@ -248,7 +216,8 @@ class TTSConfigMixin(rx.State, mixin=True):
 
             # Stop running Docker container
             if self.tts_engine in GPU_ENGINES:
-                stop_engine(self.tts_engine, on_status=lambda msg: self.add_debug(f"✅ {msg}"))  # type: ignore[attr-defined]
+                success, msg = stop_engine(self.tts_engine)
+                self.add_debug(f"✅ {msg}" if success else f"❌ {msg}")  # type: ignore[attr-defined]
                 if self.tts_engine == "moss":
                     self.moss_tts_device = ""
 
@@ -280,36 +249,26 @@ class TTSConfigMixin(rx.State, mixin=True):
         self.add_debug(f"🔊 TTS Engine: {key}")  # type: ignore[attr-defined]
         yield
 
-        # Delegate container lifecycle to tts_engine_manager
-        # defer_llm_restart=True: same path as FreeEcho.2 (SSOT)
-        # Browser has no TTS work between switch and restart, so restart follows immediately
-        from ..lib.tts_engine_manager import restart_llm_backend
-
-        result = switch_tts_engine(
-            new_engine=key,
-            old_engine=old_key if was_enabled else None,
+        # SSOT: ensure_tts_state generator — each yield = one blocking step done
+        gen = ensure_tts_state(
+            wanted_tts=key if key in GPU_ENGINES else "",
             backend_type=self.backend_type,  # type: ignore[attr-defined]
             xtts_force_cpu=self.xtts_force_cpu,
-            on_status=lambda msg: self.add_debug(f"🔊 {msg}"),  # type: ignore[attr-defined]
-            defer_llm_restart=True,
         )
+        result = None
+        try:
+            while True:
+                msg = next(gen)
+                self.add_debug(f"🔊 {msg}")  # type: ignore[attr-defined]
+                yield  # Reflex UI update after each step
+        except StopIteration as e:
+            result = e.value
 
-        # Update MOSS device state
-        if key == "moss":
+        # Update engine-specific Reflex state from result
+        if result and key == "moss":
             self.moss_tts_device = result.moss_device if result.success else ""
-
-        # Refresh XTTS voices after container start
-        if key == "xtts" and result.success:
+        if key == "xtts":
             self._refresh_xtts_voices()
-
-        if not result.success:
-            self.add_debug(f"⚠️ Engine switch incomplete: {'; '.join(result.messages)}")  # type: ignore[attr-defined]
-
-        # Restart LLM backend (no TTS work to do in browser, so restart immediately)
-        if result.success and key in ("xtts", "moss"):
-            restart_llm_backend(self.backend_type, on_status=lambda msg: self.add_debug(f"🔄 {msg}"))  # type: ignore[attr-defined]
-
-        yield
 
     # ── Voice / Speed / Pitch / Autoplay ──────────────────────────
 

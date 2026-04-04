@@ -511,22 +511,30 @@ class ChatMixin(rx.State, mixin=True):
     # ── Main Send Message ────────────────────────────────────────────
 
     async def _phase_tts_container_checks(self) -> AsyncGenerator[None, None]:
-        """Ensure TTS containers are running before LLM loads models (reserves VRAM)."""
-        if self.enable_tts and self.tts_engine == "xtts" and not self.xtts_force_cpu:  # type: ignore[attr-defined]
-            from ..lib.process_utils import ensure_xtts_ready
-            self.add_debug("🔊 XTTS: Checking container...")
-            yield
-            success, msg = ensure_xtts_ready(timeout=60)
-            self.add_debug(f"{'✅' if success else '⚠️'} {msg}")
-            yield
-        elif self.enable_tts and self.tts_engine == "moss":  # type: ignore[attr-defined]
-            from ..lib.process_utils import ensure_moss_ready
-            self.add_debug("🔊 MOSS-TTS: Checking container...")
-            yield
-            success, msg, device = ensure_moss_ready(timeout=120)
-            self.moss_tts_device = device if success else ""  # type: ignore[attr-defined]
-            self.add_debug(f"{'✅' if success else '⚠️'} {msg}")
-            yield
+        """Ensure VRAM state matches TTS requirements before LLM loads.
+
+        Uses ensure_tts_state (SSOT) — same function as FreeEcho.2 Puck.
+        Browser passes what it wants, function handles the rest.
+        """
+        from ..lib.tts_engine_manager import ensure_tts_state, GPU_ENGINES
+
+        wanted = ""
+        if self.enable_tts and self.tts_engine in GPU_ENGINES:  # type: ignore[attr-defined]
+            if not (self.tts_engine == "xtts" and self.xtts_force_cpu):  # type: ignore[attr-defined]
+                wanted = self.tts_engine  # type: ignore[attr-defined]
+
+        gen = ensure_tts_state(
+            wanted_tts=wanted,
+            backend_type=self.backend_type,  # type: ignore[attr-defined]
+            xtts_force_cpu=self.xtts_force_cpu,  # type: ignore[attr-defined]
+        )
+        try:
+            while True:
+                msg = next(gen)
+                self.add_debug(f"🔊 {msg}")  # type: ignore[attr-defined]
+                yield
+        except StopIteration:
+            pass
 
     async def _phase_pre_message_compression(
         self, llm_client: Any, detected_language: str,

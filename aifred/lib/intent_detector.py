@@ -169,41 +169,29 @@ async def detect_query_intent_and_addressee(
     # Use English prompt for intent detection (universal, handles all languages)
     prompt = get_intent_detection_prompt(user_query=user_query, lang="en")
 
-    try:
-        log_message(f"🎯 Intent+Addressee+Language detection for query: {user_query[:60]}...")
+    log_message(f"🎯 Intent+Addressee+Language detection for query: {user_query[:60]}...")
 
-        intent_options: Dict = {
-            'temperature': 0.2,  # Low for consistent detection
-            'enable_thinking': False  # Fast detection without reasoning
-        }
-        if automatik_num_ctx is not None:
-            intent_options['num_ctx'] = automatik_num_ctx
+    intent_options: Dict = {
+        'temperature': 0.2,  # Low for consistent detection
+        'enable_thinking': False  # Fast detection without reasoning
+    }
+    if automatik_num_ctx is not None:
+        intent_options['num_ctx'] = automatik_num_ctx
 
-        log_message("🧠 Intent enable_thinking: False (Automatik-Task)")
+    log_message("🧠 Intent enable_thinking: False (Automatik-Task)")
 
-        response = await llm_client.chat(
-            model=automatik_model,
-            messages=[{'role': 'user', 'content': prompt}],
-            options=intent_options
-        )
-        response_raw = response.text
-        # Strip thinking blocks — models like GPT-OSS always reason regardless of enable_thinking
-        response_clean = strip_thinking_blocks(response_raw).strip()
+    response = await llm_client.chat(
+        model=automatik_model,
+        messages=[{'role': 'user', 'content': prompt}],
+        options=intent_options
+    )
+    response_raw = response.text
+    # Strip thinking blocks — models like GPT-OSS always reason regardless of enable_thinking
+    response_clean = strip_thinking_blocks(response_raw).strip()
 
-        intent, addressee, detected_language = parse_intent_addressee_language(response_clean, context="general")
-        log_message(f"✅ Intent: {intent}, Addressee: {addressee or 'none'}, Language: {detected_language.upper()}, Raw: '{response_clean}'")
-        return (intent, addressee, detected_language, response_raw)
-
-    except Exception as e:
-        # Connection errors must propagate — don't hide "server unreachable"
-        from ..backends.base import BackendConnectionError
-        if isinstance(e, BackendConnectionError):
-            raise
-        # Other errors (parsing, timeout, etc.): fallback to safe defaults
-        from .prompt_loader import get_language
-        fallback_lang = get_language()
-        log_message(f"❌ Intent detection error: {e} → Fallback: FAKTISCH, no addressee, {fallback_lang.upper()}")
-        return ("FAKTISCH", None, fallback_lang, "")
+    intent, addressee, detected_language = parse_intent_addressee_language(response_clean, context="general")
+    log_message(f"✅ Intent: {intent}, Addressee: {addressee or 'none'}, Language: {detected_language.upper()}, Raw: '{response_clean}'")
+    return (intent, addressee, detected_language, response_raw)
 
 
 async def detect_cache_followup_intent(
@@ -239,39 +227,31 @@ async def detect_cache_followup_intent(
         lang=detected_user_language
     )
 
-    try:
-        log_message(f"🎯 Cache-Followup Intent-Detection mit {automatik_model}: {followup_query[:60]}...")
+    log_message(f"🎯 Cache-Followup Intent-Detection mit {automatik_model}: {followup_query[:60]}...")
 
-        # Build options
-        followup_intent_options: Dict = {
-            'temperature': 0.2,
-            'enable_thinking': False  # Default: Fast intent detection without reasoning
-        }
-        if automatik_num_ctx is not None:
-            followup_intent_options['num_ctx'] = automatik_num_ctx
+    # Build options
+    followup_intent_options: Dict = {
+        'temperature': 0.2,
+        'enable_thinking': False  # Default: Fast intent detection without reasoning
+    }
+    if automatik_num_ctx is not None:
+        followup_intent_options['num_ctx'] = automatik_num_ctx
 
-        # Automatik tasks: Thinking is ALWAYS off (independent of user toggle)
-        log_message("🧠 Followup Intent enable_thinking: False (Automatik-Task)")
+    # Automatik tasks: Thinking is ALWAYS off (independent of user toggle)
+    log_message("🧠 Followup Intent enable_thinking: False (Automatik-Task)")
 
-        response = await llm_client.chat(
-            model=automatik_model,
-            messages=[{'role': 'user', 'content': prompt}],
-            options=followup_intent_options
-        )
-        intent_raw = response.text
-        # Strip thinking blocks — models like GPT-OSS always reason regardless of enable_thinking
-        intent_clean = strip_thinking_blocks(intent_raw).strip()
+    response = await llm_client.chat(
+        model=automatik_model,
+        messages=[{'role': 'user', 'content': prompt}],
+        options=followup_intent_options
+    )
+    intent_raw = response.text
+    # Strip thinking blocks — models like GPT-OSS always reason regardless of enable_thinking
+    intent_clean = strip_thinking_blocks(intent_raw).strip()
 
-        intent = parse_intent_from_response(intent_clean, context="cache_followup")
-        log_message(f"✅ Cache-Followup Intent ({automatik_model}): {intent}")
-        return intent
-
-    except Exception as e:
-        from ..backends.base import BackendConnectionError
-        if isinstance(e, BackendConnectionError):
-            raise
-        log_message(f"❌ Cache-Followup Intent-Detection Error: {e} → Fallback: FAKTISCH")
-        return "FAKTISCH"
+    intent = parse_intent_from_response(intent_clean, context="cache_followup")
+    log_message(f"✅ Cache-Followup Intent ({automatik_model}): {intent}")
+    return intent
 
 
 async def detect_vl_relevance(
@@ -308,43 +288,35 @@ async def detect_vl_relevance(
         lang="en",
     )
 
-    try:
-        log_message(f"📷 VL relevance check: {user_query[:60]}...")
+    log_message(f"📷 VL relevance check: {user_query[:60]}...")
 
-        options: Dict = {
-            'temperature': 0.2,
-            'enable_thinking': False,
-        }
-        if automatik_num_ctx is not None:
-            options['num_ctx'] = automatik_num_ctx
+    options: Dict = {
+        'temperature': 0.2,
+        'enable_thinking': False,
+    }
+    if automatik_num_ctx is not None:
+        options['num_ctx'] = automatik_num_ctx
 
-        response = await llm_client.chat(
-            model=automatik_model,
-            messages=[{'role': 'user', 'content': prompt}],
-            options=options,
-        )
-        response_raw = response.text
-        response_clean = strip_thinking_blocks(response_raw).strip().upper()
+    response = await llm_client.chat(
+        model=automatik_model,
+        messages=[{'role': 'user', 'content': prompt}],
+        options=options,
+    )
+    response_raw = response.text
+    response_clean = strip_thinking_blocks(response_raw).strip().upper()
 
-        if response_clean == "NONE":
-            log_message("📷 VL relevance: NONE (not image-related)")
-            return None
-
-        match = re.match(r'IMAGE:(\d+)', response_clean)
-        if match:
-            image_idx = int(match.group(1))
-            log_message(f"📷 VL relevance: IMAGE:{image_idx}")
-            return image_idx
-
-        log_message(f"⚠️ VL relevance unparseable: '{response_clean}' → NONE")
+    if response_clean == "NONE":
+        log_message("📷 VL relevance: NONE (not image-related)")
         return None
 
-    except Exception as e:
-        from ..backends.base import BackendConnectionError
-        if isinstance(e, BackendConnectionError):
-            raise
-        log_message(f"❌ VL relevance check error: {e} → NONE")
-        return None
+    match = re.match(r'IMAGE:(\d+)', response_clean)
+    if match:
+        image_idx = int(match.group(1))
+        log_message(f"📷 VL relevance: IMAGE:{image_idx}")
+        return image_idx
+
+    log_message(f"⚠️ VL relevance unparseable: '{response_clean}' �� NONE")
+    return None
 
 
 def get_temperature_for_intent(intent: str) -> float:
@@ -368,12 +340,12 @@ def get_temperature_for_intent(intent: str) -> float:
         INTENT_TEMPERATURE_KREATIV
     )
 
-    temp_map = {
+    temp_map: dict[str, float] = {
         "FAKTISCH": INTENT_TEMPERATURE_FAKTISCH,
         "KREATIV": INTENT_TEMPERATURE_KREATIV,
         "GEMISCHT": INTENT_TEMPERATURE_GEMISCHT
     }
-    return temp_map.get(intent, INTENT_TEMPERATURE_FAKTISCH)  # Fallback: factual
+    return temp_map.get(intent, INTENT_TEMPERATURE_FAKTISCH)  # type: ignore[no-any-return]
 
 
 def get_temperature_label(intent: str) -> str:

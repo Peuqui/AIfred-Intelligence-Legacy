@@ -233,41 +233,17 @@ class BaseChannel(ABC):
         log_message(msg, level)
         print(f"[{self.name}] {msg}", file=sys.stderr, flush=True)
 
-    def migrate_from_env(self) -> None:
-        """One-time migration: move non-secret .env entries to plugin settings.json.
-
-        Runs at plugin discovery. If settings.json already exists, migration is skipped.
-        Reads non-secret credential fields from os.environ and writes them to settings.json.
-        """
-        import os
-        path = self._settings_path()
-        if path.exists():
-            return  # Already migrated
-
-        settings: dict[str, str] = {}
-        for field in self.credential_fields:
-            if field.is_secret:
-                continue
-            val = os.environ.get(field.env_key, "")
-            if val:
-                settings[field.env_key] = val
-
-        if settings:
-            self.save_settings(settings)
-            from .logging_utils import log_message
-            log_message(f"Plugin '{self.name}': migrated {len(settings)} settings from .env to settings.json")
-
     def load_settings_to_env(self) -> None:
         """Load plugin settings.json into os.environ at boot time.
 
-        Ensures non-secret config values (ports, hosts, etc.) are available
-        to credential_broker and is_configured() after restart.
+        settings.json has priority over .env for non-secret values.
+        This ensures the latest saved config is used, not stale .env entries.
         Runs at plugin discovery, after migration.
         """
         import os
         settings = self.load_settings()
         for key, value in settings.items():
-            if value and not os.environ.get(key):
+            if value:
                 os.environ[key] = value
 
     def get_tools(self, ctx: "PluginContext") -> list["Tool"]:
