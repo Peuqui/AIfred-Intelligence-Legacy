@@ -364,9 +364,9 @@ def _config_view() -> rx.Component:
                             ),
                         ),
                     ),
-                    # Clear memory button (not vision, not during create)
+                    # Clear memory button (not during create)
                     rx.cond(
-                        ~is_new & (AIState.editor_role != "vision"),
+                        ~is_new,
                         rx.tooltip(
                             rx.icon_button(
                                 rx.icon("eraser", size=16),
@@ -505,9 +505,9 @@ def _config_view() -> rx.Component:
                     align="end",
                 ),
 
-                # ── TTS Settings (only existing agents, not vision) ─
+                # ── TTS Settings (only existing agents) ─
                 rx.cond(
-                    ~is_new & (AIState.editor_role != "vision"),
+                    ~is_new,
                     rx.vstack(
                         # Header: Title + Enabled toggle
                         rx.hstack(

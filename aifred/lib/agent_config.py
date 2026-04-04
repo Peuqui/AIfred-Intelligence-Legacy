@@ -22,7 +22,7 @@ from .config import DATA_DIR
 AGENTS_FILE = DATA_DIR / "agents.json"
 
 # Valid agent roles
-VALID_ROLES = ("main", "critic", "judge", "vision", "custom")
+VALID_ROLES = ("main", "critic", "judge", "custom")
 
 
 @dataclass
@@ -32,7 +32,7 @@ class AgentConfig:
     display_name: str
     emoji: str
     description: str
-    role: str  # "main" | "critic" | "judge" | "vision" | "custom"
+    role: str  # "main" | "critic" | "judge" | "custom"
 
     # Prompt file paths relative to prompts/{lang}/
     # Keys: "identity", "personality", "task", "reminder", + role-specific
@@ -120,12 +120,13 @@ def _default_agents() -> dict[str, dict]:
             "display_name": "Vision",
             "emoji": "\U0001f4f7",
             "description": "Vision Language Model fuer Bildanalyse",
-            "role": "vision",
+            "role": "main",
             "prompts": {
                 "identity": "vision/identity.txt",
                 "personality": "aifred/personality.txt",
                 "task": "vision/vision_ocr.txt",
                 "task_qa": "vision/vision_qa.txt",
+                "memory_context": "vision/memory_context.txt",
             },
             "toggles": {
                 "personality": True,

@@ -71,7 +71,7 @@
       "display_name": "Vision",
       "emoji": "📷",
       "description": "Vision Language Model fuer Bildanalyse",
-      "role": "vision",
+      "role": "main",
       "prompts": {
         "identity": "vision/identity.txt",
         "personality": "aifred/personality.txt",
@@ -84,25 +84,7 @@
         "reasoning": false,
         "thinking": true
       },
-      "tools": [
-        "epim_search",
-        "epim_create",
-        "epim_update",
-        "epim_delete",
-        "scheduler_create",
-        "scheduler_list",
-        "scheduler_delete",
-        "translate",
-        "list_files",
-        "read_file",
-        "write_file",
-        "create_folder",
-        "delete_file",
-        "delete_folder",
-        "discord_send",
-        "email",
-        "telegram_send"
-      ]
+      "tools": null
     },
     "pater": {
       "display_name": "Pater Tuck",
