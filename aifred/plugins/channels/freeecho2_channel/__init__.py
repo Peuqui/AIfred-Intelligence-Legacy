@@ -88,12 +88,32 @@ class FreeEchoChannel(BaseChannel):
 
     def apply_credentials(self, values: dict[str, str]) -> None:
         from ....lib.credential_broker import broker
+        from ....lib.tts_engine_manager import switch_tts_engine
+
         broker.set_runtime("freeecho2", "enabled", "true")
         port = values.get("FREEECHO2_PORT", str(_DEFAULT_PORT))
         broker.set_runtime("freeecho2", "port", port)
-        tts_engine = values.get("FREEECHO2_TTS_ENGINE", "piper")
-        if tts_engine:
-            broker.set_runtime("freeecho2", "tts_engine", tts_engine)
+
+        new_engine = values.get("FREEECHO2_TTS_ENGINE", "piper")
+        old_engine = broker.get("freeecho2", "tts_engine") or None
+
+        # Engine switch with VRAM management (same logic as browser UI)
+        if new_engine != old_engine:
+            # Get current LLM backend type for VRAM orchestration
+            from ....state._base import _global_backend_state
+            backend_type = _global_backend_state.get("backend_type") or "llamacpp"
+
+            result = switch_tts_engine(
+                new_engine=new_engine,
+                old_engine=old_engine,
+                backend_type=backend_type,
+                on_status=lambda msg: self.channel_log(f"TTS switch: {msg}"),
+            )
+            if not result.success:
+                self.channel_log(f"TTS engine switch failed: {'; '.join(result.messages)}", "error")
+
+        broker.set_runtime("freeecho2", "tts_engine", new_engine)
+
         tts_voice = values.get("FREEECHO2_TTS_VOICE", "de_DE-thorsten-high")
         if tts_voice:
             broker.set_runtime("freeecho2", "tts_voice", tts_voice)
@@ -343,13 +363,25 @@ class FreeEchoChannel(BaseChannel):
         Uses the FreeEcho.2 plugin's TTS engine setting combined with
         per-agent voice configuration from TTS_AGENT_VOICE_DEFAULTS.
         Independent of the browser UI TTS toggle.
+
+        Ensures GPU-based TTS containers are running before generation.
         """
         from ....lib.credential_broker import broker
         from ....lib.config import PROJECT_ROOT, TTS_AGENT_VOICE_DEFAULTS
         from ....lib.settings import load_settings
+        from ....lib.tts_engine_manager import ensure_engine_ready, GPU_ENGINES
 
         # Engine from plugin settings
         engine = broker.get("freeecho2", "tts_engine") or "piper"
+
+        # Ensure GPU-based TTS container is running (lazy start)
+        if engine in GPU_ENGINES:
+            ready = await asyncio.get_event_loop().run_in_executor(
+                None, lambda: ensure_engine_ready(engine)
+            )
+            if not ready.success:
+                self.channel_log(f"TTS engine {engine} not ready: {'; '.join(ready.messages)}", "error")
+                return None
 
         # Voice priority: 1. User settings (per engine+agent), 2. Defaults, 3. Fallback
         settings = load_settings() or {}

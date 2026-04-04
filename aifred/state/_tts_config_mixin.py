@@ -193,47 +193,32 @@ class TTSConfigMixin(rx.State, mixin=True):
     def toggle_tts(self):
         """Toggle TTS on/off.
 
-        When XTTS is selected:
-        - TTS OFF: Stop XTTS container (free VRAM)
-        - TTS ON: Start XTTS container with current CPU/GPU setting
+        When GPU engine (XTTS/MOSS) is selected:
+        - TTS OFF: Stop container (free VRAM)
+        - TTS ON: Start container with current settings
         """
+        from ..lib.tts_engine_manager import stop_engine, start_engine, GPU_ENGINES
+
         self.enable_tts = not self.enable_tts
         self.add_debug(f"🔊 TTS: {'enabled' if self.enable_tts else 'disabled'}")  # type: ignore[attr-defined]
 
-        # Handle Docker TTS container start/stop
-        if self.tts_engine == "xtts":
-            from ..lib.process_utils import set_xtts_cpu_mode, stop_xtts_container
-
+        if self.tts_engine in GPU_ENGINES:
             if self.enable_tts:
-                success, message = set_xtts_cpu_mode(self.xtts_force_cpu)
-                if success:
-                    self.add_debug("✅ XTTS container started")  # type: ignore[attr-defined]
+                result = start_engine(
+                    self.tts_engine,
+                    xtts_force_cpu=self.xtts_force_cpu,
+                    on_status=lambda msg: self.add_debug(f"✅ {msg}"),  # type: ignore[attr-defined]
+                )
+                if self.tts_engine == "moss":
+                    self.moss_tts_device = result.moss_device if result.success else ""
+                if self.tts_engine == "xtts" and result.success:
                     self._refresh_xtts_voices()
-                else:
-                    self.add_debug(f"❌ {message}")  # type: ignore[attr-defined]
+                if not result.success:
+                    self.add_debug(f"❌ {'; '.join(result.messages)}")  # type: ignore[attr-defined]
             else:
-                success, message = stop_xtts_container()
-                if success:
-                    self.add_debug("✅ XTTS container stopped")  # type: ignore[attr-defined]
-                else:
-                    self.add_debug(f"❌ {message}")  # type: ignore[attr-defined]
-        elif self.tts_engine == "moss":  # MOSS-TTS (batch)
-            from ..lib.process_utils import ensure_moss_ready, stop_moss_container
-
-            if self.enable_tts:
-                success, message, device = ensure_moss_ready(timeout=120)
-                self.moss_tts_device = device if success else ""
-                if success:
-                    self.add_debug(f"✅ {message}")  # type: ignore[attr-defined]
-                else:
-                    self.add_debug(f"❌ {message}")  # type: ignore[attr-defined]
-            else:
-                success, message = stop_moss_container()
-                self.moss_tts_device = ""
-                if success:
-                    self.add_debug("✅ MOSS-TTS container stopped")  # type: ignore[attr-defined]
-                else:
-                    self.add_debug(f"❌ {message}")  # type: ignore[attr-defined]
+                stop_engine(self.tts_engine, on_status=lambda msg: self.add_debug(f"✅ {msg}"))  # type: ignore[attr-defined]
+                if self.tts_engine == "moss":
+                    self.moss_tts_device = ""
 
         self._save_settings()  # type: ignore[attr-defined]
 
@@ -242,8 +227,13 @@ class TTSConfigMixin(rx.State, mixin=True):
 
         Receives translated label from dropdown, maps to internal key.
         "Off"/"Aus" disables TTS, any engine label enables TTS.
+
+        Container lifecycle delegated to tts_engine_manager (Single Source of Truth).
+        Reflex-specific concerns (yield, state updates, settings save) stay here.
         """
         from ..lib.i18n import tts_label_to_key
+        from ..lib.tts_engine_manager import stop_engine, switch_tts_engine, GPU_ENGINES
+
         key = tts_label_to_key(selection)
         if key == "off":
             if not self.enable_tts:
@@ -256,24 +246,11 @@ class TTSConfigMixin(rx.State, mixin=True):
             self.enable_tts = False
             self.add_debug("🔊 TTS: disabled")  # type: ignore[attr-defined]
 
-            # Stop running Docker containers
-            if self.tts_engine == "xtts":
-                from ..lib.process_utils import stop_xtts_container
-
-                success, message = stop_xtts_container()
-                if success:
-                    self.add_debug("✅ XTTS container stopped")  # type: ignore[attr-defined]
-                else:
-                    self.add_debug(f"❌ {message}")  # type: ignore[attr-defined]
-            elif self.tts_engine == "moss":
-                from ..lib.process_utils import stop_moss_container
-
-                success, message = stop_moss_container()
-                self.moss_tts_device = ""
-                if success:
-                    self.add_debug("✅ MOSS-TTS container stopped")  # type: ignore[attr-defined]
-                else:
-                    self.add_debug(f"❌ {message}")  # type: ignore[attr-defined]
+            # Stop running Docker container
+            if self.tts_engine in GPU_ENGINES:
+                stop_engine(self.tts_engine, on_status=lambda msg: self.add_debug(f"✅ {msg}"))  # type: ignore[attr-defined]
+                if self.tts_engine == "moss":
+                    self.moss_tts_device = ""
 
             self._save_settings()  # type: ignore[attr-defined]
             return
@@ -303,62 +280,27 @@ class TTSConfigMixin(rx.State, mixin=True):
         self.add_debug(f"🔊 TTS Engine: {key}")  # type: ignore[attr-defined]
         yield
 
-        # Stop OLD Docker TTS container to free VRAM
-        if was_enabled:
-            if old_key == "xtts":
-                from ..lib.process_utils import stop_xtts_container
+        # Delegate container lifecycle to tts_engine_manager
+        result = switch_tts_engine(
+            new_engine=key,
+            old_engine=old_key if was_enabled else None,
+            backend_type=self.backend_type,  # type: ignore[attr-defined]
+            xtts_force_cpu=self.xtts_force_cpu,
+            on_status=lambda msg: self.add_debug(f"🔊 {msg}"),  # type: ignore[attr-defined]
+        )
 
-                stop_xtts_container()
-                self.add_debug("🔊 XTTS container stopped (engine switch)")  # type: ignore[attr-defined]
-                yield
-            elif old_key == "moss":
-                from ..lib.process_utils import stop_moss_container
+        # Update MOSS device state
+        if key == "moss":
+            self.moss_tts_device = result.moss_device if result.success else ""
 
-                stop_moss_container()
-                self.moss_tts_device = ""
-                self.add_debug("🔊 MOSS-TTS container stopped (engine switch)")  # type: ignore[attr-defined]
-                yield
-
-        # Free VRAM before starting GPU-hungry TTS (XTTS/MOSS need GPU space)
-        if key in ("xtts", "moss"):
-            from ..lib.process_utils import unload_all_gpu_models
-            actions = unload_all_gpu_models(self.backend_type)  # type: ignore[attr-defined]
-            if actions:
-                self.add_debug(f"🔊 VRAM freed: {', '.join(actions)}")  # type: ignore[attr-defined]
-                yield
-
-        # Start NEW Docker TTS container
-        if key == "xtts":
-            from ..lib.process_utils import set_xtts_cpu_mode
-
-            success, msg = set_xtts_cpu_mode(self.xtts_force_cpu)
-            if success:
-                self.add_debug(f"✅ {msg}")  # type: ignore[attr-defined]
-            else:
-                self.add_debug(f"⚠️ {msg}")  # type: ignore[attr-defined]
+        # Refresh XTTS voices after container start
+        if key == "xtts" and result.success:
             self._refresh_xtts_voices()
-        elif key == "moss":
-            self.add_debug("🔊 MOSS-TTS: Loading model...")  # type: ignore[attr-defined]
-            yield
-            from ..lib.process_utils import ensure_moss_ready
 
-            success, msg, device = ensure_moss_ready(timeout=120)
-            self.moss_tts_device = device if success else ""
-            if success:
-                self.add_debug(f"✅ {msg}")  # type: ignore[attr-defined]
-            else:
-                self.add_debug(f"⚠️ {msg}")  # type: ignore[attr-defined]
+        if not result.success:
+            self.add_debug(f"⚠️ Engine switch incomplete: {'; '.join(result.messages)}")  # type: ignore[attr-defined]
 
-        # Restart LLM backend (was stopped for VRAM cleanup)
-        if key in ("xtts", "moss"):
-            if self.backend_type == "llamacpp":  # type: ignore[attr-defined]
-                from ..lib.process_utils import start_llama_swap
-                if start_llama_swap():
-                    self.add_debug("🔄 llama-swap restarted")  # type: ignore[attr-defined]
-            # Ollama/vLLM/TabbyAPI restart automatically on next request
-            yield
-
-        # Per-engine settings already restored before container ops (see above)
+        yield
 
     # ── Voice / Speed / Pitch / Autoplay ──────────────────────────
 

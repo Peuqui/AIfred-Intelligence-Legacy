@@ -27,6 +27,7 @@ Firmware-TODOs dort in TODO.md, hier nur AIfred-seitige Punkte.
 ### Naechste Schritte (AIfred-Seite)
 - [ ] Latenz-Optimierung: Kaltstart ~30s (Modell-Ladezeit), ~2.7s warm
 - [ ] Memory-Injektion fuer alle Agenten untersuchen
+- [ ] Vision Modell soll wie alle anderen Agenten behandelt werden: Tools, Memory, etc. Es wird dann als der Agent gewertet, der ausgewählt wurde, Fallback: AIfred
 
 ### Plugin-System Refactoring (PRIORITAET)
 
