@@ -168,6 +168,26 @@
         "thinking": true
       }
     },
+    "hal": {
+      "display_name": "HAL 9000",
+      "emoji": "🔴",
+      "description": "Heuristisch programmierter ALgorithmischer Computer",
+      "role": "custom",
+      "prompts": {
+        "identity": "hal/identity.txt",
+        "personality": "hal/personality.txt",
+        "reminder": "hal/reminder.txt",
+        "task": "hal/system_minimal.txt",
+        "direct": "hal/direct.txt",
+        "memory_context": "hal/memory_context.txt"
+      },
+      "toggles": {
+        "personality": true,
+        "reasoning": false,
+        "thinking": true
+      },
+      "tools": null
+    },
     "rabbi": {
       "display_name": "Rabbi Shmuel",
       "emoji": "🕎",

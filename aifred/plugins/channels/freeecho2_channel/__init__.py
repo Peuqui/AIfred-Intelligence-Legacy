@@ -61,6 +61,10 @@ class FreeEchoChannel(BaseChannel):
     def always_reply(self) -> bool:
         return True
 
+    @property
+    def has_allowlist(self) -> bool:
+        return False
+
     # ── Credentials ───────────────────────────────────────────
 
     @property

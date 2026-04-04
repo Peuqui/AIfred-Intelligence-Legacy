@@ -1300,19 +1300,21 @@ def _plugins_view() -> rx.Component:
                 )
             )
 
-        # Allowlist
-        children.append(
-            rx.cond(
-                enabled_var,
-                rx.hstack(
-                    rx.box(width="14px"),
-                    rx.icon("shield", size=12, color="#666"),
-                    rx.text("Allowlist: ", font_size="10px", color="#666"),
-                    rx.text(AIState.channel_allowlists[name], font_size="10px", color="#888", overflow="hidden", text_overflow="ellipsis", white_space="nowrap", max_width="200px"),
-                    spacing="1", align="center", width="100%",
-                ),
+        # Allowlist (only for channels that declare has_allowlist)
+        ch_plugin = all_channels().get(name)
+        if ch_plugin and ch_plugin.has_allowlist:
+            children.append(
+                rx.cond(
+                    enabled_var,
+                    rx.hstack(
+                        rx.box(width="14px"),
+                        rx.icon("shield", size=12, color="#666"),
+                        rx.text("Allowlist: ", font_size="10px", color="#666"),
+                        rx.text(AIState.channel_allowlists[name], font_size="10px", color="#888", overflow="hidden", text_overflow="ellipsis", white_space="nowrap", max_width="200px"),
+                        spacing="1", align="center", width="100%",
+                    ),
+                )
             )
-        )
 
         channel_rows.append(rx.vstack(*children, spacing="1", width="100%"))
 

@@ -607,11 +607,13 @@ TTS_AGENT_VOICE_DEFAULTS = {
         "aifred": {"voice": "★ AIfred", "speed": "1.25x", "pitch": "1.0", "enabled": True},
         "sokrates": {"voice": "★ Sokrates", "speed": "1.25x", "pitch": "1.0", "enabled": True},
         "salomo": {"voice": "Baldur Sanjin", "speed": "1.25x", "pitch": "1.0", "enabled": True},
+        "hal": {"voice": "★ HAL9000", "speed": "1.0x", "pitch": "1.0", "enabled": True},
     },
     "moss": {
         "aifred": {"voice": "AIfred", "speed": "1.25x", "pitch": "1.0", "enabled": True},
         "sokrates": {"voice": "Sokrates", "speed": "1.25x", "pitch": "1.0", "enabled": True},
         "salomo": {"voice": "Salomo", "speed": "1.25x", "pitch": "1.0", "enabled": True},
+        "hal": {"voice": "HAL9000", "speed": "1.0x", "pitch": "1.0", "enabled": True},
     },
     "piper": {
         "aifred": {"voice": "Deutsch (Karlsson)", "speed": "1.25x", "pitch": "1.0", "enabled": True},
@@ -632,6 +634,7 @@ TTS_AGENT_VOICE_DEFAULTS = {
         "aifred": {"voice": "★ AIfred", "speed": "1.25x", "pitch": "1.0", "enabled": True},
         "sokrates": {"voice": "★ Sokrates", "speed": "1.25x", "pitch": "1.0", "enabled": True},
         "salomo": {"voice": "★ Salomo", "speed": "1.25x", "pitch": "1.0", "enabled": True},
+        "hal": {"voice": "★ HAL9000", "speed": "1.0x", "pitch": "1.0", "enabled": True},
     },
 }
 

@@ -131,6 +131,15 @@ class BaseChannel(ABC):
         """
         return False
 
+    @property
+    def has_allowlist(self) -> bool:
+        """If True, an allowlist row is shown in the UI.
+
+        Override to return False for channels that don't need sender
+        filtering (e.g. FreeEcho.2 — local hardware, no external senders).
+        """
+        return True
+
     def build_reply_metadata(self, message: "InboundMessage") -> dict:
         return {}
 

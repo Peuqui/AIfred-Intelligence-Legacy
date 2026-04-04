@@ -1455,8 +1455,8 @@ def plugin_manager_modal() -> rx.Component:
             )
 
         # Allowlist display (compact, under the channel row)
-        # Only for channels that have allowlist config (not FreeEcho.2 etc.)
-        if name in ("email", "telegram", "discord"):
+        ch_plugin = all_channels().get(name)
+        if ch_plugin and ch_plugin.has_allowlist:
             allowlist_key = name
             children.append(
                 rx.cond(
