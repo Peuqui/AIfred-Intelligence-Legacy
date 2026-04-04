@@ -15,7 +15,7 @@ from typing import Any, Dict, List
 
 import reflex as rx
 
-from ..lib.logging_utils import log_message, CONSOLE_SEPARATOR
+from ..lib.logging_utils import log_message
 
 
 # Module-level storage for DashScope WebSocket TTS instances (keyed by session_id).
@@ -155,7 +155,7 @@ class TTSStreamingMixin(rx.State, mixin=True):
 
                 if os.path.exists(file_path):
                     # Set browser playback rate from agent speed setting
-                    self.tts_playback_rate = f"{speed_value}x"  # type: ignore[attr-defined]
+                    self.tts_playback_rate = "1.0x"  # type: ignore[attr-defined]  # Speed is baked into audio via engine or ffmpeg
                     self.add_debug(f"🔊 TTS: Playback rate set to {speed_value}x")  # type: ignore[attr-defined]
                     # Store audio URL for playback (use temporary URL for autoplay)
                     self.tts_audio_path = audio_url
@@ -285,7 +285,7 @@ class TTSStreamingMixin(rx.State, mixin=True):
                     # Also set tts_audio_path so HTML5 player shows current audio
                     self.tts_audio_path = audio_url
                     # Set browser playback rate from agent speed setting
-                    self.tts_playback_rate = f"{speed_value}x"  # type: ignore[attr-defined]
+                    self.tts_playback_rate = "1.0x"  # type: ignore[attr-defined]  # Speed is baked into audio via engine or ffmpeg
                     file_size_kb = os.path.getsize(file_path) / 1024
                     self.add_debug(f"✅ TTS Queue: Added {agent} audio ({file_size_kb:.1f} KB), queue size: {len(self.tts_audio_queue)}")  # type: ignore[attr-defined]
 
@@ -762,7 +762,7 @@ class TTSStreamingMixin(rx.State, mixin=True):
                     file_size = os.path.getsize(file_path)
                     log_message(f"🔊 TTS Generate: File exists, size={file_size} bytes")
 
-                    playback_rate = f"{speed_value}x"
+                    playback_rate = "1.0x"  # Speed is baked into audio via engine or ffmpeg
 
                     # Buffer result for ordered push
                     self._tts_order_buffer = {**self._tts_order_buffer, seq: (audio_url, playback_rate, request_id)}

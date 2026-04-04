@@ -300,7 +300,7 @@ class ChatMixin(rx.State, mixin=True):
         # Always set when audio_urls are present, regardless of source
         audio_urls = msg_metadata.get("audio_urls", [])
         if audio_urls:
-            msg_metadata["playback_rate"] = self.tts_agent_voices[agent]["speed"]  # type: ignore[attr-defined]
+            msg_metadata["playback_rate"] = "1.0x"  # Speed is baked into audio via engine or ffmpeg
         # Resolve agent display info for UI rendering
         from ..lib.agent_config import get_agent_config
         agent_cfg = get_agent_config(agent)

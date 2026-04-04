@@ -1856,18 +1856,23 @@ async def generate_tts(text, voice_choice, speed_choice, tts_engine, pitch: floa
             )
         else:
             # Edge TTS (Cloud) - async API call (already non-blocking)
-            rate = f"+{int((speed_choice - 1.0) * 100)}%"
+            rate_pct = round((speed_choice - 1.0) * 100)
+            rate = f"{rate_pct:+d}%"
             # Use Edge-specific voice, fallback if not found
             voice_id = EDGE_TTS_VOICES.get(voice_choice, "de-DE-KatjaNeural")
             audio_url = await generate_speech_edge(text, voice_id, rate)
 
-        # Apply pitch adjustment if needed (works for all engines via ffmpeg)
-        # Note: Speed is handled by browser playback rate (faster, no delay)
-        if audio_url and abs(pitch - 1.0) >= 0.01:
+        # Apply pitch and/or speed adjustment via ffmpeg if needed
+        # Speed: Piper/eSpeak/Edge handle it natively, XTTS/MOSS/DashScope don't
+        needs_speed = tts_engine in ("xtts", "moss", "dashscope") and abs(speed_choice - 1.0) >= 0.01
+        needs_pitch = abs(pitch - 1.0) >= 0.01
+        if audio_url and (needs_pitch or needs_speed):
             filename = audio_url.split("/")[-1]
             local_path = str(TTS_AUDIO_DIR / filename)
+            ffmpeg_speed = speed_choice if needs_speed else 1.0
+            ffmpeg_pitch = pitch if needs_pitch else 1.0
             await loop.run_in_executor(
-                None, apply_audio_adjustments, local_path, pitch, 1.0
+                None, apply_audio_adjustments, local_path, ffmpeg_pitch, ffmpeg_speed
             )
 
         return audio_url

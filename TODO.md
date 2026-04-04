@@ -23,9 +23,6 @@ Separates Projekt: github.com/Peuqui/FreeEcho.2
 Firmware-TODOs dort in TODO.md, hier nur AIfred-seitige Punkte.
 
 ### Naechste Schritte (AIfred-Seite)
-- [ ] **Timing-Debug-Prints** aus message_processor.py entfernen
-- [ ] **TTS Speed an XTTS uebergeben** — API unterstuetzt `speed` im JSON Body, wir schicken es nur nicht (Zeile 993)
-- [ ] **TTS Speed fuer MOSS/DashScope** — kein Engine-Parameter, braucht ffmpeg-Nachbearbeitung fuer Puck
 - [ ] Latenz-Optimierung: Kaltstart ~30s (Modell-Ladezeit), ~2.7s warm
 - [ ] Memory-Injektion fuer alle Agenten untersuchen
 
@@ -36,7 +33,6 @@ Firmware-TODOs dort in TODO.md, hier nur AIfred-seitige Punkte.
   - Config (Port, Engine, Stimme) gehoert in Plugin-JSON
 - [ ] **Plugin-eigenes i18n System** — jedes Plugin bringt eigene Uebersetzungen mit (min. DE/EN)
 - [ ] **Credential-Modal Label-Rendering fixen** — zeigt i18n Keys statt Klartext (`label_key` → `t(label_key)`)
-- [ ] **Allowlist-Bug** — bei FreeEcho.2 immer noch sichtbar (agent_editor.py Zeile ~1311 hat keine Bedingung)
 - [ ] Modal-Titel nutzt display_name + i18n "Einstellungen"/"Settings"
 
 ### FreeEcho.2 Plugin
