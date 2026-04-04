@@ -72,9 +72,15 @@ def start_engine(
     from .process_utils import set_xtts_cpu_mode, ensure_moss_ready
 
     if engine == "xtts":
+        from .process_utils import ensure_xtts_ready
         success, msg = set_xtts_cpu_mode(xtts_force_cpu)
         _emit(on_status, msg)
-        return SwitchResult(success=success, messages=[msg])
+        if not success:
+            return SwitchResult(success=False, messages=[msg])
+        # Wait for model to load (set_xtts_cpu_mode only starts the container)
+        success, ready_msg = ensure_xtts_ready(timeout=60)
+        _emit(on_status, ready_msg)
+        return SwitchResult(success=success, messages=[msg, ready_msg])
 
     elif engine == "moss":
         _emit(on_status, "MOSS-TTS: Loading model...")
