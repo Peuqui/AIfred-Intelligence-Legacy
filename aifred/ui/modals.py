@@ -1193,10 +1193,12 @@ def _cred_field_input(field: rx.Var) -> rx.Component:
         content=t(tooltip_key),
     )
     # Dropdown input (when options are provided)
+    # UI shows labels from channel_credential_values (pre-mapped in State)
+    # State handler maps label→value on save
     dropdown_input = rx.vstack(
         label_with_tooltip,
         rx.select(
-            field["options"].to(str).split(","),
+            field["option_labels"].to(str).split(","),
             value=value,
             on_change=lambda val: AIState.update_channel_credential([env_key, val]),
             size="2",

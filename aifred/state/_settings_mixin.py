@@ -561,7 +561,13 @@ class SettingsMixin(rx.State, mixin=True):
         values: dict[str, str] = {}
         field_descriptors: list[dict[str, str]] = []
         for field in fields:
-            values[field.env_key] = os.environ.get(field.env_key, field.default)
+            raw_value = os.environ.get(field.env_key, field.default)
+            # Map stored value to display label for dropdown fields
+            if field.options:
+                value_to_label = {val: lbl for val, lbl in field.options}
+                values[field.env_key] = value_to_label.get(raw_value, raw_value)
+            else:
+                values[field.env_key] = raw_value
             field_descriptors.append({
                 "env_key": field.env_key,
                 "label_key": _t(field.label_key, lang=lang),
@@ -569,7 +575,8 @@ class SettingsMixin(rx.State, mixin=True):
                 "is_password": "1" if field.is_password else "",
                 "group": field.group,
                 "width_ratio": str(field.width_ratio),
-                "options": ",".join(field.options) if field.options else "",
+                "options": ",".join(val for val, _ in field.options) if field.options else "",
+                "option_labels": ",".join(lbl for _, lbl in field.options) if field.options else "",
             })
 
         display = plugin.display_name if plugin else channel_name.capitalize()
@@ -632,14 +639,24 @@ class SettingsMixin(rx.State, mixin=True):
         # Write each credential to .env and os.environ
         for field in fields:
             val = self.channel_credential_values.get(field.env_key, "")
+            # Map display label back to stored value for dropdown fields
+            if field.options:
+                label_to_value = {lbl: v for v, lbl in field.options}
+                val = label_to_value.get(val, val)
             if val or not field.is_password:  # Don't overwrite password with empty
                 set_key(env_path, field.env_key, val)
                 os.environ[field.env_key] = val
 
         self.add_debug(f"🔧 {display} Credentials gespeichert")  # type: ignore[attr-defined, has-type]
 
-        # Save values before clearing state (needed for apply_credentials)
-        saved_values = dict(self.channel_credential_values)
+        # Save values (with labels mapped back to values) for apply_credentials
+        saved_values = {}
+        for field in fields:
+            val = self.channel_credential_values.get(field.env_key, "")
+            if field.options:
+                label_to_value = {lbl: v for v, lbl in field.options}
+                val = label_to_value.get(val, val)
+            saved_values[field.env_key] = val
 
         # Close modal
         self.channel_credentials_modal_open = False

@@ -76,7 +76,7 @@ class CredentialField:
     is_password: bool = False
     width_ratio: int = 1    # Relative width in a row
     group: str = ""         # Group fields into one hstack
-    options: list[str] | None = None  # If set, render as dropdown instead of text input
+    options: list[tuple[str, str]] | None = None  # If set, render as dropdown: [(value, label), ...]
 
 
 class BaseChannel(ABC):

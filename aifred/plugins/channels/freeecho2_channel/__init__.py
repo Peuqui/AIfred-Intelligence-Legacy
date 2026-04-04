@@ -79,12 +79,7 @@ class FreeEchoChannel(BaseChannel):
                 env_key="FREEECHO2_TTS_ENGINE",
                 label_key="freeecho2_cred_tts_engine",
                 placeholder="piper",
-                options=["piper", "edge", "xtts", "moss", "espeak"],
-            ),
-            CredentialField(
-                env_key="FREEECHO2_TTS_VOICE",
-                label_key="freeecho2_cred_tts_voice",
-                placeholder="",
+                options=[("piper", "Piper"), ("edge", "Edge"), ("xtts", "XTTS"), ("moss", "MOSS"), ("espeak", "eSpeak")],
             ),
         ]
 

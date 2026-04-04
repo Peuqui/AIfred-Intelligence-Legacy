@@ -14,6 +14,8 @@ Pipeline: Inbound Sanitization → Tier-Check → Tool-Aufruf → Output-Sanitiz
 - [ ] Live-Test im Browser (AIfred soll WAV abspielen)
 - [ ] Integration mit Scheduler: Weckerton zu bestimmter Uhrzeit
 - [ ] Netzwerk-Playback (PulseAudio remote oder eigener Audio-Server fuer Pucks)
+- [ ] **Musik-Streaming an Puck** — eigener Streaming-Kanal (nicht ueber TTS-Protokoll),
+  Playlisten, Pause/Skip/Resume, setzt Bluetooth-Speaker am Puck voraus
 
 ---
 
