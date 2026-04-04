@@ -24,29 +24,6 @@ Pipeline: Inbound Sanitization → Tier-Check → Tool-Aufruf → Output-Sanitiz
 Separates Projekt: github.com/Peuqui/FreeEcho.2
 Firmware-TODOs dort in TODO.md, hier nur AIfred-seitige Punkte.
 
-### Naechste Schritte (AIfred-Seite)
-- [ ] Latenz-Optimierung: Kaltstart ~30s (Modell-Ladezeit), ~2.7s warm
-- [ ] Memory-Injektion fuer alle Agenten untersuchen
-- [x] Vision Modell als vollwertiger Agent: Tools, Memory, Personality des aktiven Agenten
-
-### Plugin-System Refactoring
-
-- [x] `CredentialField` um `is_secret: bool = False` erweitern
-- [x] Plugin-eigene `settings.json` lesen/schreiben (statt .env fuer non-secrets)
-- [x] Settings beim Boot in os.environ laden (load_settings_to_env)
-- [x] Plugin-eigenes i18n — `i18n.json` im Plugin-Ordner
-- [x] Zentrale i18n.py entschlankt: Channel-Plugin-Keys raus
-- [x] Credential-Modal: Labels aus Plugin-i18n, Fallback auf zentrale i18n
-- [x] Modal-Titel nutzt display_name + i18n "Einstellungen"/"Settings"
-- [x] Migration: bestehende .env-Eintraege in settings.json (einmalig, automatisch)
-- [x] Discord in discord_channel/ Ordner migriert (alle Plugins = Ordner)
-- [x] TTS Engine Manager: Single Source of Truth fuer Engine-Lifecycle (VRAM, Container)
-- [x] Tool-Plugins in Ordner-Struktur migriert (calculator, research, sandbox, etc.)
-
-### FreeEcho.2 Plugin
-- [ ] TTS Voice Dropdown dynamisch (abhaengig von gewaehlter Engine, verfuegbare Stimmen auflisten)
-- [x] Plugin TTS Engine Wechsel: automatisches VRAM Management + Docker Container Start/Stop
-
 ---
 
 ## Security-Verfeinerung

@@ -5,7 +5,7 @@ Converts llm_history (List[Dict]) to Ollama Messages format.
 All LLM calls use llm_history exclusively (not chat_history).
 """
 
-from typing import List, Dict, Optional
+from typing import Any, List, Dict, Optional
 from datetime import datetime
 
 from .prompt_loader import get_user_name
@@ -279,3 +279,50 @@ def inject_vision_json_context(
 This data was extracted from an image. Use it for your answer."""
     }
     messages.insert(position, vision_message)
+
+
+def build_history_entry(
+    agent: str,
+    content: str,
+    mode: str = "own_knowledge",
+    metadata: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Build a chat_history entry for an agent response.
+
+    Single Source of Truth for the history dict format.
+    Used by llm_engine.py and research pipeline (cache_handler, context_builder).
+    The browser UI path uses add_agent_panel() which adds extra UI concerns
+    (markers, TTS, session save) on top of the same structure.
+
+    Args:
+        agent: Agent identifier ("aifred", "sokrates", "pater", etc.)
+        content: Formatted response content (with thinking HTML, metadata display)
+        mode: Response mode ("own_knowledge", "web_research", "session_cache", etc.)
+        metadata: Optional metadata dict (TTFT, inference_time, tokens_per_sec, etc.)
+    """
+    from .agent_config import get_agent_config, get_agent_emoji
+
+    cfg = get_agent_config(agent)
+    return {
+        "role": "assistant",
+        "content": content,
+        "agent": agent,
+        "agent_display_name": cfg.display_name if cfg else agent.capitalize(),
+        "agent_emoji": get_agent_emoji(agent),
+        "mode": mode,
+        "round_num": 0,
+        "metadata": metadata or {},
+        "timestamp": datetime.now().isoformat(),
+    }
+
+
+def build_llm_history_entry(agent: str, response_clean: str) -> Dict[str, str]:
+    """Build an llm_history entry with agent speaker tag.
+
+    Single Source of Truth for the [AGENT]: prefix format.
+
+    Args:
+        agent: Agent identifier
+        response_clean: Clean response text (no HTML, no thinking blocks)
+    """
+    return {"role": "assistant", "content": f"[{agent.upper()}]: {response_clean}"}

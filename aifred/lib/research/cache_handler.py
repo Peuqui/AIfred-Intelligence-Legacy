@@ -4,7 +4,6 @@ Cache Handler - Handles cache hits from previous research sessions
 Extracted from perform_agent_research() to improve modularity.
 """
 
-import datetime
 import time  # For strftime
 from typing import Dict, List, Optional, AsyncIterator
 
@@ -18,13 +17,6 @@ from ..formatting import format_thinking_process, format_number, build_inference
 from ..logging_utils import log_message, console_separator, CONSOLE_SEPARATOR
 from .context_utils import get_cache_context_budget
 from ..streaming_utils import stream_llm_response
-
-
-def _get_agent_display_name(agent: str) -> str:
-    """Get display name for an agent. Falls back to capitalized ID."""
-    from ..agent_config import get_agent_config
-    cfg = get_agent_config(agent)
-    return cfg.display_name if cfg else agent.capitalize()
 
 
 async def handle_cache_hit(
@@ -215,7 +207,7 @@ async def handle_cache_hit(
     _cal = get_llamacpp_calibration_info(model_choice)
     if _cal and _cal["mode"] == "hybrid":
         arch_label += f", hybrid ngl={_cal['ngl']}"
-    from ..agent_config import get_agent_label, get_agent_emoji
+    from ..agent_config import get_agent_label
     yield {"type": "debug", "message": f"{get_agent_label('aifred')}-LLM starting: {model_choice} ({arch_label}, cache data)"}
 
     # Show LLM generation phase
@@ -266,7 +258,8 @@ async def handle_cache_hit(
     # Strip thinking blocks and update llm_history BEFORE calculating history_tokens
     final_answer_clean = strip_thinking_blocks(final_answer) if final_answer else ""
     if final_answer_clean:
-        llm_history.append({"role": "assistant", "content": f"[{agent.upper()}]: {final_answer_clean}"})
+        from ..message_builder import build_llm_history_entry
+        llm_history.append(build_llm_history_entry(agent, final_answer_clean))
 
     # History tokens now reflect the current conversation state (incl. AI response)
     from ..context_manager import estimate_tokens_from_llm_history
@@ -292,17 +285,11 @@ async def handle_cache_hit(
     final_answer_formatted = format_thinking_process(final_answer, model_name=model_choice, inference_time=llm_time, tokens_per_sec=tokens_per_sec)
 
     # Add AI response to chat_history (UI display)
-    history.append({
-        "role": "assistant",
-        "content": f"{final_answer_formatted}\n\n{metadata_display}",
-        "agent": agent,
-        "agent_display_name": _get_agent_display_name(agent),
-        "agent_emoji": get_agent_emoji(agent),
-        "mode": "session_cache",
-        "round_num": 0,
-        "metadata": metadata_dict,
-        "timestamp": datetime.datetime.now().isoformat()
-    })
+    from ..message_builder import build_history_entry
+    history.append(build_history_entry(
+        agent, f"{final_answer_formatted}\n\n{metadata_display}",
+        "session_cache", metadata_dict,
+    ))
 
     log_message(f"✅ Cache-based response done in {format_number(total_time, 1)}s")
 

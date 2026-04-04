@@ -9,7 +9,6 @@ Handles:
 - Cache saving
 """
 
-import datetime
 import re
 from typing import Dict, List, Optional, AsyncIterator
 
@@ -29,13 +28,6 @@ from ..vector_cache import format_ttl_hours
 from ..intent_detector import get_temperature_for_intent, get_temperature_label
 from .context_utils import get_rag_context_budget
 from ..streaming_utils import stream_llm_response
-
-
-def _get_agent_display_name(agent: str) -> str:
-    """Get display name for an agent. Falls back to capitalized ID."""
-    from ..agent_config import get_agent_config
-    cfg = get_agent_config(agent)
-    return cfg.display_name if cfg else agent.capitalize()
 
 
 async def build_and_generate_response(
@@ -289,7 +281,7 @@ async def build_and_generate_response(
     _cal = get_llamacpp_calibration_info(model_choice)
     if _cal and _cal["mode"] == "hybrid":
         arch_label += f", hybrid ngl={_cal['ngl']}"
-    from ..agent_config import get_agent_label, get_agent_emoji
+    from ..agent_config import get_agent_label
     yield {"type": "debug", "message": f"{get_agent_label('aifred')}-LLM starting: {model_choice} ({arch_label})"}
     yield {"type": "progress", "phase": "llm"}
 
@@ -337,7 +329,8 @@ async def build_and_generate_response(
     # Strip thinking + update llm_history BEFORE history_tokens calculation
     ai_text_clean = strip_thinking_blocks(ai_text) if ai_text else ""
     if ai_text_clean:
-        llm_history.append({"role": "assistant", "content": f"[{agent.upper()}]: {ai_text_clean}"})
+        from ..message_builder import build_llm_history_entry
+        llm_history.append(build_llm_history_entry(agent, ai_text_clean))
 
     # History tokens now reflect the current conversation state (incl. AI response)
     from ..context_manager import estimate_tokens_from_llm_history
@@ -440,17 +433,11 @@ async def build_and_generate_response(
     if sources_collapsible:
         history_content = f"{sources_collapsible}\n\n{history_content}"
 
-    history.append({
-        "role": "assistant",
-        "content": f"{history_content}\n\n{metadata_display}",
-        "agent": agent,
-        "agent_display_name": _get_agent_display_name(agent),
-        "agent_emoji": get_agent_emoji(agent),
-        "mode": "web_research",
-        "round_num": 0,
-        "metadata": metadata_dict,
-        "timestamp": datetime.datetime.now().isoformat()
-    })
+    from ..message_builder import build_history_entry
+    history.append(build_history_entry(
+        agent, f"{history_content}\n\n{metadata_display}",
+        "web_research", metadata_dict,
+    ))
     # llm_history already updated above (before metadata calculation)
 
     log_message(f"✅ AI response generated ({len(ai_text)} chars, inference: {format_number(inference_time, 1)}s)")

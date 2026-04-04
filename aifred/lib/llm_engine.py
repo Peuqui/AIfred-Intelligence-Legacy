@@ -254,8 +254,8 @@ async def call_llm(
         # Update llm_history BEFORE calculating history_tokens
         # so "History: X tok" reflects the current conversation state (incl. AI response)
         if response_clean:
-            agent_tag = agent.upper()
-            llm_history.append({"role": "assistant", "content": f"[{agent_tag}]: {response_clean}"})
+            from .message_builder import build_llm_history_entry
+            llm_history.append(build_llm_history_entry(agent, response_clean))
 
         # Rebuild metadata with hub-specific params (history_tokens, backend_type, source_label)
         from .context_manager import estimate_tokens_from_llm_history
@@ -277,20 +277,9 @@ async def call_llm(
         yield {"type": "debug", "message": debug_msg}
 
         # Update chat_history (UI display with thinking + metadata)
-        import datetime
+        from .message_builder import build_history_entry
         ai_with_source = f"{thinking_html}\n\n{metadata_display}"
-
-        history.append({
-            "role": "assistant",
-            "content": ai_with_source,
-            "agent": agent,
-            "agent_display_name": agent_label,
-            "agent_emoji": get_agent_emoji(agent),
-            "mode": "own_knowledge",
-            "round_num": 0,
-            "metadata": metadata_dict,
-            "timestamp": datetime.datetime.now().isoformat()
-        })
+        history.append(build_history_entry(agent, ai_with_source, "own_knowledge", metadata_dict))
 
         # Clear progress
         yield {"type": "progress", "clear": True}
