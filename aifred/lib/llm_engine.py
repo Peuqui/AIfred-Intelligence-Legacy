@@ -17,7 +17,7 @@ from typing import AsyncIterator, Dict, List, Optional, Any, cast
 
 from .llm_client import LLMClient, build_llm_options
 from .formatting import format_number, build_inference_metadata
-from .prompt_loader import get_agent_direct_prompt, get_agent_system_prompt
+from .prompt_loader import get_agent_direct_prompt, get_agent_system_prompt, load_prompt
 from .context_manager import estimate_tokens
 from .intent_detector import get_temperature_for_intent, get_temperature_label
 from .logging_utils import log_message
@@ -116,8 +116,20 @@ async def call_llm(
             detected_language=detected_language
         ))
 
-    # Inject system prompt (agent-aware: vision uses own prompt stack with toggles)
-    if agent == "vision":
+    # Inject system prompt (agent-aware)
+    # When multimodal content is present, use the real agent's prompt stack
+    # (identity, personality, memory, tools) + vision task as addon.
+    if multimodal_content is not None and agent != "vision":
+        # Real agent prompt (with full layer stack: identity, tools, memory, personality)
+        system_prompt = get_agent_system_prompt(agent, "task", lang=detected_language, source=source)
+        # Append vision-specific task instructions as addon
+        # vision_prompt_key: "task" → vision_ocr, "task_qa" → vision_qa
+        vision_file = "vision/vision_qa" if vision_prompt_key == "task_qa" else "vision/vision_ocr"
+        vision_addon = load_prompt(vision_file, lang=detected_language)
+        if vision_addon:
+            system_prompt = f"{system_prompt}\n\n{vision_addon}"
+    elif agent == "vision":
+        # Legacy fallback: explicit "vision" agent (backward compat for direct VL calls)
         system_prompt = get_agent_system_prompt("vision", vision_prompt_key, lang=detected_language)
     elif use_direct_prompt:
         system_prompt = get_agent_direct_prompt(agent, lang=detected_language)
@@ -127,7 +139,7 @@ async def call_llm(
     memory_toolkit = external_toolkit
     if memory_toolkit:
         pass  # External toolkit provided (e.g. from Message Hub) — already logged by caller
-    elif state and getattr(state, 'agent_memory_enabled', False) and agent != "vision":
+    elif state and getattr(state, 'agent_memory_enabled', False):
         from .agent_memory import prepare_agent_toolkit
         memory_ctx, memory_toolkit = await prepare_agent_toolkit(
             agent, user_text, lang=detected_language or "de",

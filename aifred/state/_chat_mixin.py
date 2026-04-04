@@ -417,6 +417,10 @@ class ChatMixin(rx.State, mixin=True):
         Shared by VL Direct, VL Shortcut, and VL Follow-up paths.
         Handles streaming, history update, cleanup, title generation and session save.
 
+        The VL model acts as the currently active agent (with that agent's
+        memory, tools, and personality). For multi-agent modes with multiple
+        selected agents, defaults to "aifred".
+
         For llamacpp: prefers the -speed variant (single GPU, faster) unless
         the base variant is already running (avoid unnecessary model swap).
         """
@@ -428,7 +432,10 @@ class ChatMixin(rx.State, mixin=True):
             self.add_debug(f"⚡ VL variant: {effective_vision_id}")  # type: ignore[attr-defined]
             yield
 
-        self._set_current_agent("aifred")
+        # VL acts as the active agent (memory, tools, personality)
+        acting_agent = self.active_agent or "aifred"  # type: ignore[attr-defined]
+        self._set_current_agent(acting_agent)
+        self.add_debug(f"📷 VL acting as: {acting_agent}")  # type: ignore[attr-defined]
         yield
 
         result_data = None
@@ -448,7 +455,7 @@ class ChatMixin(rx.State, mixin=True):
             multimodal_content=content_parts,
             vision_prompt_key=vision_prompt_key,
             provider=self.cloud_api_provider if self.backend_type == "cloud_api" else None,  # type: ignore[attr-defined]
-            agent="vision",
+            agent=acting_agent,
         ):
             if item["type"] == "debug":
                 self.add_debug(item["message"])
