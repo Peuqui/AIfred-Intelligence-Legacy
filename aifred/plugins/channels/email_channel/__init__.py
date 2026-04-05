@@ -234,10 +234,10 @@ class EmailChannel(BaseChannel):
                     try:
                         await asyncio.wait_for(
                             self._idle_cycle(imap),
-                            timeout=_IDLE_TIMEOUT_SECONDS + 30,  # IDLE timeout + margin
+                            timeout=_IDLE_TIMEOUT_SECONDS + 60,  # IDLE timeout + margin for DONE/drain
                         )
                     except asyncio.TimeoutError:
-                        self.channel_log("Email Plugin: IDLE cycle timed out, reconnecting...", "warning")
+                        self.channel_log("Email Plugin: IDLE cycle timeout, reconnecting...")
                         raise OSError("IDLE cycle timeout")  # triggers reconnect
 
                     # Check for new messages after IDLE wakeup
@@ -262,6 +262,22 @@ class EmailChannel(BaseChannel):
                         pass
                 return
 
+            except OSError as exc:
+                if "IDLE cycle timeout" in str(exc):
+                    # Normal IDLE refresh — not an error, just reconnect immediately
+                    if imap:
+                        try:
+                            imap.logout()
+                        except Exception:
+                            pass
+                    continue
+                self.channel_log(f"Email Plugin: error — {exc}, reconnecting in {_RECONNECT_DELAY_SECONDS}s", "error")
+                if imap:
+                    try:
+                        imap.logout()
+                    except Exception:
+                        pass
+                await asyncio.sleep(_RECONNECT_DELAY_SECONDS)
             except Exception as exc:
                 self.channel_log(f"Email Plugin: error — {exc}, reconnecting in {_RECONNECT_DELAY_SECONDS}s", "error")
                 if imap:
