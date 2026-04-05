@@ -338,9 +338,11 @@ class ChatMixin(rx.State, mixin=True):
 
         # 8. Generate TTS and add to queue (if enabled)
         # Determine if TTS should be generated
-        # SKIP if streaming TTS is enabled - text was already sent sentence-by-sentence
+        # SKIP if streaming TTS is ACTIVE (autoplay + streaming both on) —
+        # text was already sent sentence-by-sentence during inference.
         should_generate_tts = generate_tts if generate_tts is not None else self.enable_tts  # type: ignore[attr-defined]
-        if should_generate_tts and not self.tts_streaming_enabled:  # type: ignore[attr-defined]
+        streaming_active = self.tts_autoplay and self.tts_streaming_enabled  # type: ignore[attr-defined]
+        if should_generate_tts and not streaming_active:
             # Check per-agent TTS enabled setting
             agent_tts_enabled = self.tts_agent_voices.get(agent, {}).get("enabled", True)  # type: ignore[attr-defined]
             if agent_tts_enabled:

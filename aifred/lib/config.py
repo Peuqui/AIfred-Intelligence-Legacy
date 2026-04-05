@@ -280,6 +280,9 @@ PIPER_VOICES = {
     "Deutsch (MLS)": ("de_DE-mls-medium.onnx", "de"),  # Multi-speaker
 }
 
+# Puck TTS fallback voice (last resort if no agent/AIfred voice configured)
+PUCK_TTS_FALLBACK_VOICE = "Deutsch (Karlsson)"
+
 # ============================================================
 # TTS ENGINES
 # ============================================================

@@ -496,7 +496,8 @@ class FreeEchoChannel(BaseChannel):
         elif isinstance(user_cfg, str):
             voice = user_cfg
         if not voice:
-            voice = str(default_cfg.get("voice", "Deutsch (Thorsten)"))
+            from ....lib.config import PUCK_TTS_FALLBACK_VOICE
+            voice = str(default_cfg.get("voice", PUCK_TTS_FALLBACK_VOICE))
 
         speed_str = str(default_cfg.get("speed", "1.0"))
         if isinstance(user_cfg, dict) and user_cfg.get("speed"):
