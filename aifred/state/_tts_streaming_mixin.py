@@ -230,8 +230,10 @@ class TTSStreamingMixin(rx.State, mixin=True):
 
             self.add_debug(f"🔊 TTS Queue: Generating audio for {agent} ({len(clean_text)} chars)...")  # type: ignore[attr-defined]
 
-            # Determine voice, pitch, and speed based on agent settings
-            voice_choice = self.tts_voice  # type: ignore[attr-defined]
+            # Determine voice, pitch, and speed based on agent settings.
+            # Fallback: AIfred's voice for the current engine (always configured).
+            aifred_settings = self.tts_agent_voices.get("aifred", {})  # type: ignore[attr-defined]
+            voice_choice = aifred_settings.get("voice", "") or self.tts_voice  # type: ignore[attr-defined]
             pitch_value = float(self.tts_pitch) if self.tts_pitch else 1.0  # type: ignore[attr-defined]
             speed_value = 1.0
 

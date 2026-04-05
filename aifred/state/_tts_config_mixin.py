@@ -45,7 +45,7 @@ class TTSConfigMixin(rx.State, mixin=True):
 
     @rx.var(deps=["ui_language"], auto_deps=False)
     def tts_engines(self) -> List[str]:
-        """Available TTS engines for dropdown selection (translated labels)."""
+        """Available TTS engines for main dropdown (includes 'Off')."""
         from ..lib.config import TTS_ENGINE_KEYS
         from ..lib.i18n import t
         lang = self.ui_language if self.ui_language != "auto" else "de"  # type: ignore[attr-defined]
@@ -113,11 +113,13 @@ class TTSConfigMixin(rx.State, mixin=True):
     editor_tts_engine: str = "xtts"  # Default, overridden by active engine on agent load
     _editor_tts_settings: Dict[str, Any] = {}  # {"voice": ..., "speed": ..., "pitch": ..., "enabled": ...}
 
-    @rx.var(deps=["ui_language", "editor_tts_engine"], auto_deps=False)
+    @rx.var(deps=["ui_language", "editor_tts_engine", "_editor_tts_settings"], auto_deps=False)
     def editor_tts_engine_label(self) -> str:
-        """Translated label for the currently selected editor TTS engine."""
+        """Translated label: 'Off' when agent TTS disabled, engine label otherwise."""
         from ..lib.i18n import tts_key_to_label
         lang = self.ui_language if self.ui_language != "auto" else "de"  # type: ignore[attr-defined]
+        if not self._editor_tts_settings.get("enabled", True):
+            return tts_key_to_label("off", lang=lang)
         return tts_key_to_label(self.editor_tts_engine, lang=lang)
 
     @rx.var(deps=["editor_tts_engine", "xtts_voices_cache", "_editor_tts_settings"], auto_deps=False)
@@ -170,7 +172,11 @@ class TTSConfigMixin(rx.State, mixin=True):
             live_voices = set(EDGE_TTS_VOICES.keys())
 
         # 3. Merge: saved (always) + live (if available)
-        return sorted(saved_voices | live_voices)
+        # ★ voices (cloned) come first, then alphabetical
+        all_voices = saved_voices | live_voices
+        starred = sorted(v for v in all_voices if v.startswith("★"))
+        regular = sorted(v for v in all_voices if not v.startswith("★"))
+        return starred + regular
 
     @rx.var(deps=["_editor_tts_settings"], auto_deps=False)
     def editor_agent_tts_voice(self) -> str:
@@ -205,6 +211,7 @@ class TTSConfigMixin(rx.State, mixin=True):
         key = tts_label_to_key(selection)
         if key == "off":
             if not self.enable_tts:
+                yield  # Must yield even for no-op so Reflex updates UI
                 return
 
             # Save per-engine settings before disabling
@@ -222,10 +229,12 @@ class TTSConfigMixin(rx.State, mixin=True):
                     self.moss_tts_device = ""
 
             self._save_settings()  # type: ignore[attr-defined]
+            yield
             return
 
         # Engine selected — no-op if already active with same engine
         if self.enable_tts and key == self.tts_engine:
+            yield
             return
 
         was_enabled = self.enable_tts
@@ -472,13 +481,21 @@ class TTSConfigMixin(rx.State, mixin=True):
         save_settings(settings)
 
     def set_editor_tts_engine(self, label: str) -> None:
-        """Switch the TTS engine in the editor (for voice configuration)."""
+        """Switch the TTS engine in the editor (for voice configuration).
+
+        'Off' sets enabled=False for this agent and saves immediately.
+        Any engine sets enabled=True and loads voice settings for that engine.
+        """
         from ..lib.i18n import tts_label_to_key
         key = tts_label_to_key(label)
         if key == "off":
+            self._editor_tts_settings["enabled"] = False
+            self._save_editor_tts_settings()
             return
         self.editor_tts_engine = key
         self._load_editor_tts_settings()
+        self._editor_tts_settings["enabled"] = True
+        self._save_editor_tts_settings()
 
     def set_editor_agent_tts_voice(self, voice: str):
         """Set TTS voice for the agent currently open in the editor."""

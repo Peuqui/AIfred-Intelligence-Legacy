@@ -1511,6 +1511,7 @@ def tts():
         # Get speaker embedding
         speaker_data = get_speaker_embedding(speaker)
         if speaker_data is None:
+            _active_requests -= 1
             return jsonify({
                 "error": f"Unknown speaker: {speaker}",
                 "available_speakers": get_all_speakers()[:30]
