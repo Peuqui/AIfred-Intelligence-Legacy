@@ -7,17 +7,25 @@ Analyze this user request:
 - CREATIVE: Stories, poems, creative writing, brainstorming
 - MIXED: Combination of both
 
-**2. Addressee (who is being spoken to):**
-Detect if user directly addresses one of these agents by name:
+**2. Addressee (who should respond):**
+Available agents with their specializations:
 {agent_list}
 
-Understand the INTENT: Is the user speaking TO someone or ABOUT someone?
-- Speaking TO: The user wants THIS agent to respond (addressee)
-- Speaking ABOUT: The agent is just mentioned as a topic (not addressee)
+Select an addressee in TWO cases:
+A) **By name:** User directly addresses an agent ("Hey Sokrates", "Codi, hilf mir")
+B) **By expertise:** The query clearly matches ONE specialist's domain — not general knowledge.
 
-Ignore grammar, spelling, or punctuation - focus on semantic intent.
+Rules for name detection:
+- Speaking TO someone = addressee. Speaking ABOUT someone = NOT addressee.
+- Ignore grammar/spelling — focus on semantic intent.
 
-If no one is directly addressed → Leave EMPTY (use || in output)
+Rules for expertise routing:
+- Only route if the query CLEARLY matches ONE specialist's description above.
+- General questions, small talk, time/date, weather → Leave EMPTY (defaults to aifred).
+- If multiple agents could handle it → Leave EMPTY (defaults to aifred).
+- Agents without a description → Only selectable by name, never by expertise.
+
+If unsure → Leave EMPTY (use || in output). aifred handles everything by default.
 
 **3. Language of the user text in quotes above:**
 - DE: The text is in German (Deutsch)

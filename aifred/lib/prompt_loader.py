@@ -534,16 +534,21 @@ def unregister_agent_toggles(agent_id: str) -> None:
 # ============================================================
 
 def get_intent_detection_prompt(user_query: str, lang: Optional[str] = None) -> str:
-    """Load intent detection prompt with dynamic agent list."""
+    """Load intent detection prompt with dynamic agent list + descriptions."""
     from .agent_config import load_agents_raw
     agents = load_agents_raw()
     agent_lines: list[str] = []
     for aid, adata in agents.items():
+        # Skip vision agent (not user-addressable)
+        if aid == "vision":
+            continue
         name = adata.get("display_name", aid)
-        if aid == name.lower():
-            agent_lines.append(f"- {aid}")
+        desc = adata.get("description", "")
+        name_part = f"{aid}" if aid == name.lower() else f"{aid} (name: {name})"
+        if desc:
+            agent_lines.append(f"- {name_part}: {desc}")
         else:
-            agent_lines.append(f"- {aid} (variation: {name})")
+            agent_lines.append(f"- {name_part}")
     agent_list = "\n".join(agent_lines)
     return load_prompt(
         'automatik/intent_detection', lang=lang,

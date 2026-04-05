@@ -23,8 +23,14 @@ def format_intent_result(intent: str, addressee: Optional[str], language: str) -
     """Format intent detection result as debug string (single source of truth).
 
     Used by browser (add_debug), message_processor (debug), and log output.
+    Resolves agent ID to display name (e.g. "pater" → "Pater Tuck").
     """
-    addr_display = addressee.capitalize() if addressee else "–"
+    if addressee:
+        from .agent_config import get_agent_config
+        cfg = get_agent_config(addressee)
+        addr_display = cfg.display_name if cfg else addressee.capitalize()
+    else:
+        addr_display = "–"
     return f"Intent: {intent}, Addressee: {addr_display}, Lang: {language.upper()}"
 
 
