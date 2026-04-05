@@ -576,23 +576,25 @@ async def calculate_dynamic_num_ctx(
         max_practical_ctx = model_limit
         log_message(f"⚠️ VRAM limit disabled - using full model limit {model_limit:,} (risk: CPU offload)")
 
-    # TTS VRAM reservation: Reduce context when TTS is active on GPU
-    # XTTS uses ~2044 MiB, MOSS-TTS uses ~11,500 MiB VRAM
-    # Subtract equivalent tokens from max context to prevent OOM
+    # TTS VRAM reservation — only for backends where context is dynamic (Ollama).
+    # For llamacpp: llama-swap YAML has separate TTS-calibrated profiles with
+    # adjusted tensor-split. The -c value IS the ground truth — no reduction needed.
+    current_backend = getattr(state, 'backend_type', 'ollama') if state else 'ollama'
     tts_active = state and getattr(state, 'enable_tts', False)
     tts_engine = getattr(state, 'tts_engine', '').lower() if state else ''
 
-    if tts_active and 'xtts' in tts_engine and not getattr(state, 'xtts_force_cpu', False):
-        vram_ratio = VRAM_CONTEXT_RATIO_MOE if is_moe_model(model_name) else VRAM_CONTEXT_RATIO_DENSE
-        xtts_token_reserve = int(XTTS_VRAM_MB / vram_ratio)
-        max_practical_ctx = max(2048, max_practical_ctx - xtts_token_reserve)
-        vram_debug_msgs.append(f"🔊 XTTS reserviert: ~{format_number(XTTS_VRAM_MB)} MB ({format_number(xtts_token_reserve)} tok)")
+    if tts_active and current_backend == "ollama":
+        if 'xtts' in tts_engine and not getattr(state, 'xtts_force_cpu', False):
+            vram_ratio = VRAM_CONTEXT_RATIO_MOE if is_moe_model(model_name) else VRAM_CONTEXT_RATIO_DENSE
+            xtts_token_reserve = int(XTTS_VRAM_MB / vram_ratio)
+            max_practical_ctx = max(2048, max_practical_ctx - xtts_token_reserve)
+            vram_debug_msgs.append(f"🔊 XTTS reserved: ~{format_number(XTTS_VRAM_MB)} MB ({format_number(xtts_token_reserve)} tok)")
 
-    elif tts_active and 'moss' in tts_engine and getattr(state, 'moss_tts_device', '') == 'cuda':
-        vram_ratio = VRAM_CONTEXT_RATIO_MOE if is_moe_model(model_name) else VRAM_CONTEXT_RATIO_DENSE
-        moss_token_reserve = int(MOSS_TTS_VRAM_MB / vram_ratio)
-        max_practical_ctx = max(2048, max_practical_ctx - moss_token_reserve)
-        vram_debug_msgs.append(f"🔊 MOSS-TTS reserviert: ~{format_number(MOSS_TTS_VRAM_MB)} MB ({format_number(moss_token_reserve)} tok)")
+        elif 'moss' in tts_engine and getattr(state, 'moss_tts_device', '') == 'cuda':
+            vram_ratio = VRAM_CONTEXT_RATIO_MOE if is_moe_model(model_name) else VRAM_CONTEXT_RATIO_DENSE
+            moss_token_reserve = int(MOSS_TTS_VRAM_MB / vram_ratio)
+            max_practical_ctx = max(2048, max_practical_ctx - moss_token_reserve)
+            vram_debug_msgs.append(f"🔊 MOSS-TTS reserved: ~{format_number(MOSS_TTS_VRAM_MB)} MB ({format_number(moss_token_reserve)} tok)")
 
     # Ollama/vLLM/TabbyAPI/llama.cpp: Dynamic num_ctx calculation possible
     # gpu_utils.calculate_vram_based_context() returns:

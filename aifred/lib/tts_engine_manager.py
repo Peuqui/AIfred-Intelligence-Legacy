@@ -212,7 +212,11 @@ def _do_switch(
 
     # Step 4: Restart LLM with TTS-calibrated profile
     restart_llm_backend(backend_type)
-    yield "LLM restarted with TTS-calibrated profile"
+    model_info = get_effective_model_info(backend_type)
+    if model_info:
+        yield f"LLM restarted: {model_info}"
+    else:
+        yield "LLM restarted with TTS-calibrated profile"
 
 
 def force_tts_switch(
@@ -233,6 +237,27 @@ def force_tts_switch(
 
     final_running = _detect_running_tts_engine()
     return TTSState(success=final_running == wanted_tts, changed=True)
+
+
+def get_effective_model_info(backend_type: str = "llamacpp") -> str:
+    """Get effective model + context info string after TTS/VRAM change.
+
+    Single source of truth for the "model reloaded with X context" debug line.
+    Used by both browser (TTS toggle) and Puck (ensure_tts_state) paths.
+    """
+    from .config import get_effective_model_from_settings
+    from .formatting import format_number
+
+    model = get_effective_model_from_settings("aifred")
+    if not model:
+        return ""
+
+    if backend_type == "llamacpp":
+        from .research.context_utils import get_model_native_context
+        ctx = get_model_native_context(model, backend_type)
+        if ctx > 0:
+            return f"{model} (ctx: {format_number(ctx)})"
+    return model
 
 
 def restart_llm_backend(

@@ -1011,12 +1011,16 @@ class BackendMixin(rx.State, mixin=True):
                         return f"{model_display} (ctx not calibrated)"
 
                 from ..lib.agent_config import get_agent_label
-                if self.backend_type.lower() in ["vllm", "tabbyapi"]:
-                    self.add_debug(f"✅ {len(self.available_models)} models available")  # type: ignore[attr-defined, has-type]
-                    self.add_debug(f"   {get_agent_label('aifred')}: {format_model_with_ctx(self.aifred_model, self.aifred_model_id)}")  # type: ignore[attr-defined, has-type]
-                else:
-                    self.add_debug(f"✅ {len(self.available_models)} models available")  # type: ignore[attr-defined, has-type]
-                    self.add_debug(f"   {get_agent_label('aifred')}: {format_model_with_ctx(self.aifred_model, self.aifred_model_id)}")  # type: ignore[attr-defined, has-type]
+                # Show effective model (includes TTS variant if GPU TTS is active)
+                from ..lib.tts_engine_manager import get_effective_model_info
+                effective_info = get_effective_model_info(self.backend_type)
+                base_info = format_model_with_ctx(self.aifred_model, self.aifred_model_id)
+                # If TTS changes the model, show effective info instead
+                aifred_display = effective_info if effective_info and effective_info != self.aifred_model else base_info
+
+                self.add_debug(f"✅ {len(self.available_models)} models available")  # type: ignore[attr-defined, has-type]
+                self.add_debug(f"   {get_agent_label('aifred')}: {aifred_display}")  # type: ignore[attr-defined, has-type]
+                if self.backend_type.lower() not in ["vllm", "tabbyapi"]:
                     if self.automatik_model_id:
                         self.add_debug(f"   \u2728 Automatic: {format_model_with_ctx(self.automatik_model, self.automatik_model_id)}")  # type: ignore[attr-defined, has-type]
                     else:

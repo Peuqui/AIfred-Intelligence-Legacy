@@ -171,14 +171,16 @@ def get_agent_num_ctx(
             num_ctx = fallback
             source = "fallback"
 
-    # TTS Debug Output - show active TTS configuration
+    # TTS VRAM reservation — only for backends where context is dynamic (Ollama).
+    # For llamacpp: llama-swap YAML has separate TTS-calibrated profiles with
+    # adjusted tensor-split. The -c value IS the ground truth — no reduction needed.
+    # For vLLM/TabbyAPI/cloud: context is fixed at server startup.
     enable_tts = getattr(state, 'enable_tts', False)
     tts_engine = getattr(state, 'tts_engine', '')
-    tts_streaming = getattr(state, 'tts_streaming', False)
-    tts_autoplay = getattr(state, 'tts_autoplay', False)
 
-    if enable_tts:
-        # Build TTS status string
+    if enable_tts and backend_type == "ollama":
+        tts_streaming = getattr(state, 'tts_streaming', False)
+        tts_autoplay = getattr(state, 'tts_autoplay', False)
         tts_mode_parts = []
         if tts_streaming:
             tts_mode_parts.append("Streaming")
@@ -187,12 +189,10 @@ def get_agent_num_ctx(
         tts_mode = ", ".join(tts_mode_parts) if tts_mode_parts else "Manual"
 
         if 'xtts' in tts_engine.lower():
-            # XTTS: Check GPU/CPU mode and apply VRAM reservation
             xtts_force_cpu = getattr(state, 'xtts_force_cpu', False)
             device_mode = "CPU" if xtts_force_cpu else "GPU"
 
             if not xtts_force_cpu:
-                # GPU mode: Apply VRAM reservation (MoE vs Dense ratio)
                 vram_ratio = VRAM_CONTEXT_RATIO_MOE if is_moe_model(model_id) else VRAM_CONTEXT_RATIO_DENSE
                 xtts_token_reserve = int(XTTS_VRAM_MB / vram_ratio)
                 original_ctx = num_ctx
@@ -200,14 +200,11 @@ def get_agent_num_ctx(
                 source = f"{source} (XTTS: -{format_number(xtts_token_reserve)} tok)"
                 log_message(f"🔊 TTS: XTTS ({device_mode}), {tts_mode} | VRAM: {format_number(original_ctx)} → {format_number(num_ctx)} tok (-{format_number(xtts_token_reserve)})")
             else:
-                # CPU mode: No VRAM reservation needed
                 log_message(f"🔊 TTS: XTTS ({device_mode}), {tts_mode} | No VRAM reservation (CPU mode)")
         elif 'moss' in tts_engine.lower():
-            # MOSS-TTS: Check if running on GPU (device tracked by state)
             moss_device = getattr(state, 'moss_tts_device', '')
 
             if moss_device == "cuda":
-                # GPU mode: Apply VRAM reservation (~11.5 GB)
                 vram_ratio = VRAM_CONTEXT_RATIO_MOE if is_moe_model(model_id) else VRAM_CONTEXT_RATIO_DENSE
                 moss_token_reserve = int(MOSS_TTS_VRAM_MB / vram_ratio)
                 original_ctx = num_ctx
