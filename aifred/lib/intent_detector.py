@@ -19,6 +19,15 @@ from .prompt_loader import get_intent_detection_prompt, get_followup_intent_prom
 from .context_manager import strip_thinking_blocks
 
 
+def format_intent_result(intent: str, addressee: Optional[str], language: str) -> str:
+    """Format intent detection result as debug string (single source of truth).
+
+    Used by browser (add_debug), message_processor (debug), and log output.
+    """
+    addr_display = addressee.capitalize() if addressee else "–"
+    return f"Intent: {intent}, Addressee: {addr_display}, Lang: {language.upper()}"
+
+
 def parse_intent_addressee_language(
     response_raw: str,
     context: str = "general"
@@ -190,7 +199,7 @@ async def detect_query_intent_and_addressee(
     response_clean = strip_thinking_blocks(response_raw).strip()
 
     intent, addressee, detected_language = parse_intent_addressee_language(response_clean, context="general")
-    log_message(f"✅ Intent: {intent}, Addressee: {addressee or 'none'}, Language: {detected_language.upper()}, Raw: '{response_clean}'")
+    log_message(f"✅ {format_intent_result(intent, addressee, detected_language)}, Raw: '{response_clean}'")
     return (intent, addressee, detected_language, response_raw)
 
 

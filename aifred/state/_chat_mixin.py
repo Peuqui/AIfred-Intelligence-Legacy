@@ -1002,8 +1002,8 @@ class ChatMixin(rx.State, mixin=True):
                     automatik_num_ctx=auto_num_ctx,
                 )
                 # Log Intent Detection result to UI debug console (always visible)
-                addressee_display = addressed_to.capitalize() if addressed_to else "–"
-                self.add_debug(f"🎯 Intent: {detected_intent}, Addressee: {addressee_display}, Lang: {detected_language.upper()}")
+                from ..lib.intent_detector import format_intent_result
+                self.add_debug(f"🎯 {format_intent_result(detected_intent, addressed_to, detected_language)}")
                 self._last_detected_language = detected_language  # type: ignore[attr-defined]
 
             # PRE-MESSAGE: History Compression Check

@@ -127,8 +127,9 @@ async def detect_target_agent_via_llm(text: str) -> tuple[str, str, str]:
         llm_client=client,
         automatik_num_ctx=None,
     )
+    from .intent_detector import format_intent_result
     agent = addressee or "aifred"
-    log_message(f"🎯 Intent: {intent}, Addressee: {agent}, Lang: {lang.upper()}")
+    log_message(f"🎯 {format_intent_result(intent, addressee, lang)}")
     return agent, intent, lang
 
 
@@ -199,12 +200,11 @@ async def process_inbound(message: InboundMessage) -> Optional[OutboundMessage]:
         message.target_agent = agent
 
         from .agent_config import get_agent_config as _get_agent_cfg
+        from .intent_detector import format_intent_result
         _cfg = _get_agent_cfg(message.target_agent)
         agent_display_name = _cfg.display_name if _cfg else message.target_agent.capitalize()
 
-        # Show intent result in same format as browser
-        addressee_display = agent_display_name if agent != "aifred" else "–"
-        debug(f"🎯 Intent: {intent}, Addressee: {addressee_display}, Lang: {detected_lang.upper()}")
+        debug(f"🎯 {format_intent_result(intent, agent if agent != 'aifred' else None, detected_lang)}")
 
         # Save incoming message to session (chat + llm history)
         _save_to_session(session_id, message, "")
