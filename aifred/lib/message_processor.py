@@ -190,7 +190,6 @@ async def process_inbound(message: InboundMessage) -> Optional[OutboundMessage]:
         _notify("received")
 
         # ── Phase 1: Detect target agent via LLM ─────────────
-        debug(f"🎯 Intent detection: {message.text[:60]}...")
         try:
             agent, intent, detected_lang = await detect_target_agent_via_llm(message.text)
         except Exception as e:
@@ -202,7 +201,10 @@ async def process_inbound(message: InboundMessage) -> Optional[OutboundMessage]:
         from .agent_config import get_agent_config as _get_agent_cfg
         _cfg = _get_agent_cfg(message.target_agent)
         agent_display_name = _cfg.display_name if _cfg else message.target_agent.capitalize()
-        debug(f"🤖 Agent: {agent_display_name}")
+
+        # Show intent result in same format as browser
+        addressee_display = agent_display_name if agent != "aifred" else "–"
+        debug(f"🎯 Intent: {intent}, Addressee: {addressee_display}, Lang: {detected_lang.upper()}")
 
         # Save incoming message to session (chat + llm history)
         _save_to_session(session_id, message, "")

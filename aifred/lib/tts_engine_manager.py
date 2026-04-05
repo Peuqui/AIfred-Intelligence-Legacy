@@ -68,7 +68,10 @@ def _is_llm_loaded(backend_type: str) -> bool:
         return False
     try:
         import requests
-        r = requests.get("http://localhost:8099/running", timeout=2)
+        from .config import DEFAULT_LLAMACPP_URL
+        # llama-swap base URL (strip /v1 suffix for /running endpoint)
+        base_url = DEFAULT_LLAMACPP_URL.removesuffix("/v1")
+        r = requests.get(f"{base_url}/running", timeout=2)
         if r.ok:
             models = r.json()
             return len(models) > 0

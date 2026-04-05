@@ -728,7 +728,7 @@ async def _run_agent_direct_response(
         if toolkit:
             state.add_debug(f"🔧 Toolkit: {[t.name for t in toolkit.tools]} for {agent_label}")
         if not memory_enabled:
-            state.add_debug("🔒 Inkognito-Modus (kein Gedächtnis)")
+            state.add_debug("🔒 Incognito mode (no memory)")
         yield  # type: ignore[misc]  # Flush debug messages (RAG, memory, toolkit)
 
         # Forced web search (quick/deep): execute research pipeline BEFORE agent response

@@ -258,14 +258,14 @@ class FreeEchoChannel(BaseChannel):
             with session_scope(session_id):
                 # Notify UI immediately — toast + ghosting BEFORE STT
                 write_hub_notification(session_id, f"FreeEcho.2 {room}", "FreeEcho.2", room, status="received")
-                debug(f"📨 FreeEcho.2: Audio von {room} ({duration:.1f}s)")
-                debug("🎤 STT läuft...")
+                debug(f"📨 FreeEcho.2: Audio from {room} ({duration:.1f}s)")
+                debug("🎤 STT running...")
 
                 # Run STT
                 text = await self._run_stt(wav_path)
                 if not text:
                     self.channel_log(f"[FreeEcho.2 {room}] STT returned empty text", "warning")
-                    debug("❌ STT: kein Text erkannt")
+                    debug("❌ STT: no text recognized")
                     await ws.send_str(json.dumps({"type": "done", "reason": "stt_empty"}))
                     return
 
@@ -343,6 +343,13 @@ class FreeEchoChannel(BaseChannel):
             self.channel_log(f"[FreeEcho.2 {room}] No connected device for reply", "warning")
             return
 
+        # If TTS was deferred (LLM was loaded without TTS, used for fast inference),
+        # now switch: unload LLM → load TTS engine → restart LLM with TTS profile.
+        # Must happen BEFORE _run_tts() which needs the TTS engine running.
+        if original and original.metadata.get("tts_deferred"):
+            self.channel_log(f"[FreeEcho.2 {room}] Deferred TTS switch starting")
+            await self._force_tts_switch()
+
         # Generate TTS audio (agent-specific voice if configured)
         agent = original.target_agent if original else "aifred"
         tts_path = await self._run_tts(outbound.text, agent=agent)
@@ -369,11 +376,6 @@ class FreeEchoChannel(BaseChannel):
                 offset = end
             await ws.send_str(json.dumps({"type": "audio_end"}))
             self.channel_log(f"[FreeEcho.2 {room}] Audio transfer complete")
-
-            # If TTS was deferred (LLM was already loaded with wrong profile),
-            # now switch TTS and restart LLM with correct profile (blocking).
-            if original and original.metadata.get("tts_deferred"):
-                await self._force_tts_switch()
         else:
             self.channel_log(f"[FreeEcho.2 {room}] TTS conversion failed", "error")
 

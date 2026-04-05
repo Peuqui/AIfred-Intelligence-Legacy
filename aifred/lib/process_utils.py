@@ -223,7 +223,7 @@ def set_xtts_cpu_mode(force_cpu: bool) -> tuple[bool, str]:
     )
 
     if success:
-        return True, f"XTTS Container neu gestartet im {mode_str}-Modus (Modell lädt...)"
+        return True, f"XTTS container restarted in {mode_str} mode (model loading...)"
     return False, message
 
 
@@ -380,11 +380,16 @@ def unload_all_gpu_models(backend_type: str = "llamacpp", keep_tts: str = "") ->
             pass
 
     # 2. Stop TTS containers (skip the one we want to keep)
+    # Only report "stopped" if the container was actually running.
+    from .tts_engine_manager import _detect_running_tts_engine
+    running_tts = _detect_running_tts_engine()
+
     if keep_tts != "xtts":
         try:
             from .config import XTTS_DOCKER_COMPOSE_PATH
             _docker_compose_action(XTTS_DOCKER_COMPOSE_PATH, "down", "XTTS")
-            actions.append("XTTS stopped")
+            if running_tts == "xtts":
+                actions.append("XTTS stopped")
         except Exception:
             pass
 
@@ -392,7 +397,8 @@ def unload_all_gpu_models(backend_type: str = "llamacpp", keep_tts: str = "") ->
         try:
             from .config import MOSS_TTS_DOCKER_COMPOSE_PATH
             _docker_compose_action(MOSS_TTS_DOCKER_COMPOSE_PATH, "down", "MOSS-TTS")
-            actions.append("MOSS-TTS stopped")
+            if running_tts == "moss":
+                actions.append("MOSS-TTS stopped")
         except Exception:
             pass
 
