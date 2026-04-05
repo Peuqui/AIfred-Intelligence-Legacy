@@ -232,11 +232,27 @@ class BackendMixin(rx.State, mixin=True):
 
     @property
     def _effective_automatik_id(self) -> str:
-        """Resolve Automatik model ID: empty or same base model as AIfred = follow AIfred exactly."""
+        """Resolve Automatik model ID with TTS profile awareness.
+
+        Empty or same base model as AIfred → follow AIfred exactly.
+        Different model → still apply TTS profile if GPU TTS is running
+        (otherwise the base profile won't fit in VRAM alongside TTS).
+        """
         if not self.automatik_model_id:
             return self._effective_model_id("aifred")  # type: ignore[attr-defined, no-any-return]
         if self.automatik_model_id == self.aifred_model_id:
             return self._effective_model_id("aifred")  # type: ignore[attr-defined, no-any-return]
+        # Different Automatik model — still needs TTS variant if GPU TTS is running
+        if self.backend_type == "llamacpp":  # type: ignore[attr-defined]
+            from ..lib.tts_engine_manager import _detect_running_tts_engine
+            running_tts = _detect_running_tts_engine()
+            if running_tts:
+                from ..lib.llamacpp_calibration import parse_llamaswap_config
+                from ..lib.config import LLAMASWAP_CONFIG_PATH
+                tts_variant = f"{self.automatik_model_id}-tts-{running_tts}"
+                swap_cfg = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
+                if tts_variant in swap_cfg:
+                    return tts_variant
         return self.automatik_model_id
 
     @rx.var

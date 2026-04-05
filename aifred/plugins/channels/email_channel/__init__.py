@@ -263,8 +263,8 @@ class EmailChannel(BaseChannel):
                 return
 
             except OSError as exc:
-                if "IDLE cycle timeout" in str(exc):
-                    # Normal IDLE refresh — not an error, just reconnect immediately
+                if "IDLE" in str(exc) and "timeout" in str(exc):
+                    # Normal IDLE timeout — not an error, just reconnect immediately
                     if imap:
                         try:
                             imap.logout()
@@ -310,10 +310,20 @@ class EmailChannel(BaseChannel):
         if response:
             self.channel_log(f"Email Plugin: IDLE wakeup — {response.strip().decode(errors='replace')}")
 
-        # Exit IDLE — these can also hang on dead connections,
-        # but the outer timeout will catch them.
-        await asyncio.to_thread(imap.send, b"DONE\r\n")  # type: ignore[arg-type]
-        await asyncio.to_thread(_drain_idle_response, imap, tag)
+        # Exit IDLE — DONE + drain can hang on dead connections.
+        # Use a short timeout so we don't wait for the outer watchdog.
+        try:
+            await asyncio.wait_for(
+                asyncio.to_thread(imap.send, b"DONE\r\n"),  # type: ignore[arg-type]
+                timeout=10,
+            )
+            await asyncio.wait_for(
+                asyncio.to_thread(_drain_idle_response, imap, tag),
+                timeout=10,
+            )
+        except asyncio.TimeoutError:
+            # DONE/drain hung — connection is dead, let outer loop reconnect
+            raise OSError("IDLE exit timeout")
 
     # ── Single-mail processing ─────────────────────────────────
 

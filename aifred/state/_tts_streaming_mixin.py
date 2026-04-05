@@ -228,7 +228,10 @@ class TTSStreamingMixin(rx.State, mixin=True):
                 self.add_debug(f"🔇 TTS Queue: Text too short for {agent}")  # type: ignore[attr-defined]
                 return
 
-            self.add_debug(f"🔊 TTS Queue: Generating audio for {agent} ({len(clean_text)} chars)...")  # type: ignore[attr-defined]
+            from ..lib.agent_config import get_agent_config
+            _agent_cfg = get_agent_config(agent)
+            _agent_name = _agent_cfg.display_name if _agent_cfg else agent.capitalize()
+            self.add_debug(f"🔊 TTS Queue: Generating audio for {_agent_name} ({len(clean_text)} chars)...")  # type: ignore[attr-defined]
 
             # Determine voice, pitch, and speed based on agent settings.
             # Fallback: AIfred's voice for the current engine (always configured).
@@ -289,7 +292,7 @@ class TTSStreamingMixin(rx.State, mixin=True):
                     # Set browser playback rate from agent speed setting
                     self.tts_playback_rate = "1.0x"  # type: ignore[attr-defined]  # Speed is baked into audio via engine or ffmpeg
                     file_size_kb = os.path.getsize(file_path) / 1024
-                    self.add_debug(f"✅ TTS Queue: Added {agent} audio ({file_size_kb:.1f} KB), queue size: {len(self.tts_audio_queue)}")  # type: ignore[attr-defined]
+                    self.add_debug(f"✅ TTS Queue: Added {_agent_name} audio ({file_size_kb:.1f} KB), queue size: {len(self.tts_audio_queue)}")  # type: ignore[attr-defined]
 
                     # Save to session directory for permanent storage (replay button)
                     from ..lib.audio_processing import save_audio_to_session
@@ -326,6 +329,9 @@ class TTSStreamingMixin(rx.State, mixin=True):
         except (FileNotFoundError, ValueError, RuntimeError) as e:
             self.add_debug(f"❌ TTS Queue Error ({agent}): {e}")  # type: ignore[attr-defined]
             log_message(f"❌ TTS queue generation error for {agent}: {e}")
+
+        from ..lib.logging_utils import CONSOLE_SEPARATOR
+        self.add_debug(CONSOLE_SEPARATOR)  # type: ignore[attr-defined]
 
     def clear_tts_queue(self) -> None:
         """Clear the TTS audio queue (called when starting new message)."""
